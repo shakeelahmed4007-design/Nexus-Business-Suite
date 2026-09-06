@@ -50,8 +50,12 @@ export function PosPage() {
     );
   }
 
+  const scrollToCart = () => {
+    document.getElementById('pos-cart-panel')?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-16 lg:pb-0">
       <PageHeader title="Point of Sale" subtitle="Quick checkout with product grid and cart panel." />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
@@ -67,7 +71,7 @@ export function PosPage() {
                 className="h-10 w-full rounded-xl border border-ink-200 bg-white pl-10 pr-4 text-sm dark:border-ink-700 dark:bg-ink-900"
               />
             </div>
-            <div className="flex gap-1.5 overflow-x-auto scrollbar-thin">
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-thin no-scrollbar touch-scrolling pb-1">
               {productCategories.map((c) => (
                 <button
                   key={c}
@@ -95,15 +99,15 @@ export function PosPage() {
                 whileHover={{ y: -4 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => addToCart(p)}
-                className="card-base group p-4 text-left"
+                className="card-base group p-3 sm:p-4 text-left"
               >
-                <div className="mb-3 flex h-16 items-center justify-center rounded-xl bg-gradient-to-br from-ink-50 to-ink-100 text-3xl dark:from-ink-800 dark:to-ink-800/50">
+                <div className="mb-2 sm:mb-3 flex h-14 sm:h-16 items-center justify-center rounded-xl bg-gradient-to-br from-ink-50 to-ink-100 text-2xl sm:text-3xl dark:from-ink-800 dark:to-ink-800/50">
                   {p.emoji}
                 </div>
                 <p className="truncate text-xs font-semibold text-ink-900 dark:text-ink-50">{p.name}</p>
                 <p className="text-[10px] text-ink-400">{p.category}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-sm font-bold text-brand-600 dark:text-brand-400">PKR {p.price.toLocaleString()}</span>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
+                  <span className="text-xs sm:text-sm font-bold text-brand-600 dark:text-brand-400">PKR {p.price.toLocaleString()}</span>
                   <span className={clsx('text-[10px]', p.stock < 15 ? 'text-rose-500' : 'text-ink-400')}>{p.stock} left</span>
                 </div>
               </motion.button>
@@ -112,7 +116,7 @@ export function PosPage() {
         </div>
 
         {/* Cart panel */}
-        <div>
+        <div id="pos-cart-panel">
           <Card className="sticky top-20 flex max-h-[calc(100vh-6rem)] flex-col">
             <div className="flex items-center justify-between border-b border-ink-200 p-4 dark:border-ink-800">
               <span className="flex items-center gap-2 text-sm font-semibold text-ink-900 dark:text-ink-50">
@@ -177,6 +181,27 @@ export function PosPage() {
           </Card>
         </div>
       </div>
+
+      {/* Floating mobile cart bar */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-4 left-4 right-4 z-40 flex items-center justify-between rounded-2xl bg-brand-600 p-3 text-white shadow-2xl backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/20 text-xs font-bold">
+              {cart.reduce((a, c) => a + c.qty, 0)}
+            </div>
+            <div>
+              <p className="text-xs font-bold">PKR {total.toLocaleString()}</p>
+              <p className="text-[10px] text-brand-100">{cart.length} unique items</p>
+            </div>
+          </div>
+          <button
+            onClick={scrollToCart}
+            className="flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-1.5 text-xs font-semibold text-brand-700 shadow-sm"
+          >
+            View Cart <ShoppingCart className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       <ReceiptModal open={receiptOpen} onClose={() => setReceiptOpen(false)} onComplete={() => { setCart([]); setReceiptOpen(false); }} cart={cart} subtotal={subtotal} tax={tax} total={total} />
     </div>

@@ -321,16 +321,16 @@ function CreateInvoiceModal({ open, onClose, onCreated }: { open: boolean; onClo
             <label className="mb-1.5 block text-xs font-medium text-ink-500">Line Items</label>
             <div className="space-y-2 rounded-xl border border-ink-200 p-3 dark:border-ink-700">
               {items.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
+                <div key={idx} className="grid grid-cols-12 gap-2 items-center rounded-lg border border-ink-100 p-2 dark:border-ink-800/60 sm:border-0 sm:p-0">
                   <input
-                    className={inputCls + ' flex-1'}
+                    className={inputCls + ' col-span-12 sm:col-span-5'}
                     placeholder="Item name"
                     value={item.name}
                     onChange={(e) => updateItem(idx, 'name', e.target.value)}
                     required
                   />
                   <input
-                    className={inputCls + ' w-20'}
+                    className={inputCls + ' col-span-5 sm:col-span-3'}
                     placeholder="Qty"
                     type="number"
                     min={1}
@@ -339,22 +339,25 @@ function CreateInvoiceModal({ open, onClose, onCreated }: { open: boolean; onClo
                     required
                   />
                   <input
-                    className={inputCls + ' w-28'}
-                    placeholder="Unit Price"
+                    className={inputCls + ' col-span-5 sm:col-span-3'}
+                    placeholder="Price"
                     type="number"
                     min={0}
                     value={item.price || ''}
                     onChange={(e) => updateItem(idx, 'price', Number(e.target.value))}
                     required
                   />
-                  {items.length > 1 && (
+                  {items.length > 1 ? (
                     <button
                       type="button"
                       onClick={() => removeItem(idx)}
-                      className="p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg"
+                      className="col-span-2 sm:col-span-1 flex items-center justify-center p-2 text-rose-500 hover:bg-rose-500/10 rounded-lg"
+                      title="Remove item"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
+                  ) : (
+                    <div className="hidden sm:block sm:col-span-1" />
                   )}
                 </div>
               ))}

@@ -42,10 +42,10 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
             )}
           >
             {(title || subtitle) && (
-              <div className="flex items-start justify-between gap-4 border-b border-ink-200 px-6 py-4 dark:border-ink-800">
+              <div className="flex items-start justify-between gap-3 border-b border-ink-200 px-4 sm:px-6 py-3.5 sm:py-4 dark:border-ink-800">
                 <div>
                   {title && <h2 className="text-base font-semibold text-ink-900 dark:text-ink-50">{title}</h2>}
-                  {subtitle && <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{subtitle}</p>}
+                  {subtitle && <p className="mt-0.5 text-xs sm:text-sm text-ink-500 dark:text-ink-400">{subtitle}</p>}
                 </div>
                 <button
                   onClick={onClose}
@@ -55,9 +55,9 @@ export function Modal({ open, onClose, title, subtitle, children, footer, size =
                 </button>
               </div>
             )}
-            <div className="max-h-[85vh] overflow-y-auto px-6 py-5 scrollbar-thin sm:max-h-[70vh]">{children}</div>
+            <div className="max-h-[80vh] overflow-y-auto px-4 sm:px-6 py-4 sm:py-5 scrollbar-thin touch-scrolling">{children}</div>
             {footer && (
-              <div className="flex items-center justify-end gap-3 border-t border-ink-200 px-6 py-4 dark:border-ink-800">
+              <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 border-t border-ink-200 px-4 sm:px-6 py-3.5 sm:py-4 dark:border-ink-800">
                 {footer}
               </div>
             )}

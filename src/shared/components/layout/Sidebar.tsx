@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronLeft, Hexagon } from 'lucide-react';
+import { ChevronLeft, Hexagon, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { clsx } from 'clsx';
 import { navGroups, navItems } from '@/shared/config/nav';
@@ -48,11 +48,11 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, setMobileOpen }: 
       <AnimatePresence>
         {mobileOpen && (
           <motion.aside
-            initial={{ x: -300 }}
+            initial={{ x: '-100%' }}
             animate={{ x: 0 }}
-            exit={{ x: -300 }}
+            exit={{ x: '-100%' }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="fixed left-0 top-0 z-50 flex h-full w-[264px] flex-col border-r border-ink-200 bg-white lg:hidden"
+            className="fixed left-0 top-0 z-50 flex h-full w-[280px] max-w-[85vw] flex-col border-r border-ink-200 bg-white shadow-2xl lg:hidden"
           >
             <SidebarContent collapsed={false} setCollapsed={() => { }} onNavClick={() => setMobileOpen(false)} />
           </motion.aside>
@@ -113,15 +113,26 @@ function SidebarContent({
   return (
     <>
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2.5 border-b border-ink-200 px-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 shadow-glow">
-          <Hexagon className="h-5 w-5 text-white" fill="white" fillOpacity={0.2} />
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <p className="text-sm font-bold text-ink-900">Nexus</p>
-            <p className="truncate text-[10px] uppercase tracking-wider text-ink-500">Business Suite</p>
+      <div className="flex h-16 items-center justify-between border-b border-ink-200 px-4">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-accent-500 shadow-glow">
+            <Hexagon className="h-5 w-5 text-white" fill="white" fillOpacity={0.2} />
           </div>
+          {!collapsed && (
+            <div className="overflow-hidden">
+              <p className="text-sm font-bold text-ink-900">Nexus</p>
+              <p className="truncate text-[10px] uppercase tracking-wider text-ink-500">Business Suite</p>
+            </div>
+          )}
+        </div>
+        {onNavClick && (
+          <button
+            onClick={onNavClick}
+            className="rounded-lg p-1.5 text-ink-500 transition-colors hover:bg-ink-100 lg:hidden"
+            title="Close menu"
+          >
+            <X className="h-5 w-5" />
+          </button>
         )}
       </div>
 

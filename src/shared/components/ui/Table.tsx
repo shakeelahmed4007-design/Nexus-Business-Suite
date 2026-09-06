@@ -21,8 +21,8 @@ export function Table<T extends Record<string, any>>({ columns, data, rowKey, on
     a === 'right' ? 'text-right' : a === 'center' ? 'text-center' : 'text-left';
 
   return (
-    <div className="overflow-x-auto scrollbar-thin">
-      <table className="w-full border-collapse text-sm">
+    <div className="w-full max-w-full overflow-x-auto scrollbar-thin touch-scrolling block">
+      <table className="w-full min-w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-ink-200 dark:border-ink-800">
             {columns.map((c) => (

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, MessageCircle, Send, Search, Paperclip, Phone } from 'lucide-react';
+import { Mail, MessageCircle, Send, Search, Paperclip, Phone, ArrowLeft } from 'lucide-react';
 import { PageHeader } from '@/shared/components/ui/PageHeader';
 import { AccessPendingBanner } from '@/shared/components/AccessPendingBanner';
 import { useDataAccess } from '@/shared/hooks/useDataAccess';
@@ -17,10 +17,16 @@ export function MessagesPage() {
   const [selected, setSelected] = useState<Message | null>(displayConversations[0] || null);
   const [query, setQuery] = useState('');
   const [draft, setDraft] = useState('');
+  const [mobileShowChat, setMobileShowChat] = useState(false);
 
   const filtered = displayConversations.filter(
     (c) => (channel === 'All' || c.channel === channel) && c.contact.toLowerCase().includes(query.toLowerCase()),
   );
+
+  const handleSelectContact = (c: Message) => {
+    setSelected(c);
+    setMobileShowChat(true);
+  };
 
   return (
     <div className="space-y-4">
@@ -28,9 +34,9 @@ export function MessagesPage() {
 
       {!hasAccess && <AccessPendingBanner />}
 
-      <div className="grid h-[calc(100vh-12rem)] grid-cols-1 overflow-hidden rounded-2xl border border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900 lg:grid-cols-[320px_1fr]">
+      <div className="grid h-[calc(100vh-12rem)] min-h-[500px] grid-cols-1 overflow-hidden rounded-2xl border border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900 lg:grid-cols-[320px_1fr]">
         {/* Conversation list */}
-        <div className="flex flex-col border-r border-ink-200 dark:border-ink-800">
+        <div className={clsx('flex flex-col border-r border-ink-200 dark:border-ink-800', mobileShowChat ? 'hidden lg:flex' : 'flex')}>
           {/* Channel tabs */}
           <div className="flex gap-1 border-b border-ink-200 p-3 dark:border-ink-800">
             {(['All', 'WhatsApp', 'Email'] as const).map((ch) => (
@@ -60,7 +66,7 @@ export function MessagesPage() {
             {filtered.map((c) => (
               <button
                 key={c.id}
-                onClick={() => setSelected(c)}
+                onClick={() => handleSelectContact(c)}
                 className={clsix(
                   'flex w-full items-start gap-3 border-b border-ink-100 p-3 text-left transition-colors dark:border-ink-800/60',
                   selected?.id === c.id ? 'bg-brand-50 dark:bg-brand-500/10' : 'hover:bg-ink-50 dark:hover:bg-ink-800/40',
@@ -90,18 +96,31 @@ export function MessagesPage() {
         </div>
 
         {/* Chat view */}
-        <div className="flex flex-col">
+        <div className={clsx('flex flex-col', !mobileShowChat ? 'hidden lg:flex' : 'flex')}>
           {/* Chat header */}
-          <div className="flex items-center gap-3 border-b border-ink-200 p-4 dark:border-ink-800">
-            <div className={clsix('flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold text-white',
-              selected.channel === 'WhatsApp' ? 'bg-emerald-500' : 'bg-brand-500')}>
-              {selected.avatar}
+          {selected ? (
+            <div className="flex items-center gap-3 border-b border-ink-200 p-4 dark:border-ink-800">
+              <button
+                onClick={() => setMobileShowChat(false)}
+                className="rounded-lg p-1.5 text-ink-500 transition-colors hover:bg-ink-100 lg:hidden"
+                title="Back to inbox"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className={clsix('flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold text-white',
+                selected.channel === 'WhatsApp' ? 'bg-emerald-500' : 'bg-brand-500')}>
+                {selected.avatar}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-ink-900 dark:text-ink-50">{selected.contact}</p>
+                <p className="text-xs text-ink-400">{selected.channel} — Active now</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-semibold text-ink-900 dark:text-ink-50">{selected.contact}</p>
-              <p className="text-xs text-ink-400">{selected.channel} — Active now</p>
+          ) : (
+            <div className="border-b border-ink-200 p-4 text-xs text-ink-400 dark:border-ink-800">
+              Select a conversation
             </div>
-          </div>
+          )}
 
           {/* Messages */}
           <div className="flex-1 space-y-3 overflow-y-auto bg-ink-50/50 p-4 dark:bg-ink-950/30 scrollbar-thin">
@@ -111,16 +130,16 @@ export function MessagesPage() {
                   key={msg.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className={clsix('flex', msg.sender === 'me' ? 'justify-end' : 'justify-start')}
+                  className={clsx('flex', msg.sender === 'me' ? 'justify-end' : 'justify-start')}
                 >
-                  <div className={clsix(
-                    'max-w-[75%] rounded-2xl px-4 py-2.5 text-sm',
+                  <div className={clsx(
+                    'max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-2.5 text-sm',
                     msg.sender === 'me'
                       ? 'bg-brand-600 text-white'
                       : 'bg-white text-ink-800 shadow-card dark:bg-ink-800 dark:text-ink-100',
                   )}>
                     <p>{msg.text}</p>
-                    <p className={clsix('mt-1 text-[10px]', msg.sender === 'me' ? 'text-brand-100' : 'text-ink-400')}>{msg.time}</p>
+                    <p className={clsx('mt-1 text-[10px]', msg.sender === 'me' ? 'text-brand-100' : 'text-ink-400')}>{msg.time}</p>
                   </div>
                 </motion.div>
               ))}
@@ -144,7 +163,7 @@ export function MessagesPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Type a message..."
-              className="h-10 flex-1 rounded-xl border border-ink-200 bg-ink-50 px-4 text-sm dark:border-ink-700 dark:bg-ink-800"
+              className="h-10 flex-1 rounded-xl border border-ink-200 bg-ink-50 px-3 sm:px-4 text-xs sm:text-sm dark:border-ink-700 dark:bg-ink-800"
               onKeyDown={(e) => { if (e.key === 'Enter') setDraft(''); }}
             />
             <button onClick={() => setDraft('')} className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white transition-all hover:bg-brand-700 active:scale-95">

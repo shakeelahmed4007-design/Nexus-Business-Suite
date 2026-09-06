@@ -32,6 +32,7 @@ import {
   syncAdminsFromSupabase,
   addAdmin,
   updateAdminPermissions,
+  toggleAdminDataAccess,
   deleteAdmin,
   MODULE_CATEGORIES,
   getNestedCrudPermissions,
@@ -102,6 +103,13 @@ export function AdminManagementPage() {
   const refreshList = () => {
     setAdminsList(getAdmins());
     syncAdminsFromSupabase().then((list) => setAdminsList(list));
+  };
+
+  const handleToggleStatus = (adminId: string) => {
+    const nextState = toggleAdminDataAccess(adminId);
+    refreshList();
+    setSuccessMsg(nextState ? 'Admin account activated successfully.' : 'Admin account deactivated successfully.');
+    setTimeout(() => setSuccessMsg(null), 3500);
   };
 
   // Global Select All / Deselect All
@@ -238,41 +246,12 @@ export function AdminManagementPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <PageHeader
-        title="Super Admin & Access Management"
-        subtitle="Add new admins and assign granular CRUD permissions (View, Create, Edit, Delete) per module."
-      >
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => navigate('/')}
-          className="flex items-center gap-2"
+      {/* Dynamic Page Header depending on active mode */}
+      {activeTab === 'add' ? (
+        <PageHeader
+          title="Add New Admin Account"
+          subtitle="Create a new system or shop admin and assign custom CRUD module access permissions."
         >
-          <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-        </Button>
-      </PageHeader>
-
-      {/* Main Container Card */}
-      <Card className="overflow-hidden p-0">
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-ink-200 bg-ink-50/50 px-6 dark:border-ink-800 dark:bg-ink-950/50">
-          <button
-            onClick={() => {
-              setActiveTab('add');
-              setSearchParams({ tab: 'add' });
-              setErrorMsg(null);
-              setSuccessMsg(null);
-            }}
-            className={`flex items-center gap-2 border-b-2 py-4 px-6 text-sm font-semibold transition-colors ${
-              activeTab === 'add'
-                ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
-                : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
-            }`}
-          >
-            <UserPlus className="h-4 w-4" />
-            Add New Admin
-          </button>
           <button
             onClick={() => {
               setActiveTab('manage');
@@ -280,32 +259,63 @@ export function AdminManagementPage() {
               setErrorMsg(null);
               setSuccessMsg(null);
             }}
-            className={`flex items-center gap-2 border-b-2 py-4 px-6 text-sm font-semibold transition-colors ${
-              activeTab === 'manage'
-                ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
-                : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
-            }`}
+            className="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
           >
-            <Users className="h-4 w-4" />
-            Admins & Access Control ({adminsList.length})
+            <ShieldCheck className="h-3.5 w-3.5 text-brand-500" />
+            <span>Manage Access ({adminsList.length})</span>
           </button>
-        </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+          </Button>
+        </PageHeader>
+      ) : (
+        <PageHeader
+          title="Super Admin Access Control"
+          subtitle="Manage active & deactive admin accounts, view allowed permissions, and edit CRUD access."
+        >
+          <button
+            onClick={() => {
+              setActiveTab('add');
+              setSearchParams({ tab: 'add' });
+              setErrorMsg(null);
+              setSuccessMsg(null);
+            }}
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95"
+          >
+            <UserPlus className="h-4 w-4" />
+            <span>+ Add New Admin</span>
+          </button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+          </Button>
+        </PageHeader>
+      )}
 
-        {/* Tab Content */}
-        <div className="p-6">
-          {errorMsg && (
-            <div className="mb-6 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
-              <ShieldAlert className="h-5 w-5 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
+      {/* Main Container */}
+      <div className="space-y-6">
+        {errorMsg && (
+          <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+            <ShieldAlert className="h-5 w-5 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
 
-          {successMsg && (
-            <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <CheckCircle2 className="h-5 w-5 shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
+        {successMsg && (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
 
           {activeTab === 'add' ? (
             <form onSubmit={handleCreateAdmin} className="space-y-6">
@@ -592,13 +602,144 @@ export function AdminManagementPage() {
             </form>
           ) : (
             <div className="space-y-6">
-              {/* Admins Table */}
-              <div className="overflow-hidden rounded-2xl border border-ink-200 dark:border-ink-800">
-                <table className="w-full text-left text-xs">
+              {/* Summary KPI Cards for Active & Deactive Status */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="flex items-center justify-between rounded-2xl border border-ink-200 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+                  <div>
+                    <p className="text-xs font-semibold text-ink-500 dark:text-ink-400">Total Admin Accounts</p>
+                    <p className="mt-1 text-2xl font-black text-ink-900 dark:text-ink-50">{adminsList.length}</p>
+                  </div>
+                  <Users className="h-8 w-8 text-brand-500/40" />
+                </div>
+
+                <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/30">
+                  <div>
+                    <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Active Admins</p>
+                    <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">
+                      {adminsList.filter((a) => a.has_data_access).length}
+                    </p>
+                  </div>
+                  <div className="relative flex h-4 w-4">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm dark:border-rose-900/40 dark:bg-rose-950/30">
+                  <div>
+                    <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Deactive Admins</p>
+                    <p className="mt-1 text-2xl font-black text-rose-800 dark:text-rose-300">
+                      {adminsList.filter((a) => !a.has_data_access).length}
+                    </p>
+                  </div>
+                  <div className="h-4 w-4 rounded-full bg-rose-500 shadow-sm"></div>
+                </div>
+              </div>
+
+              {/* Mobile Card List View (Visible on small screens < 640px) */}
+              <div className="space-y-3 sm:hidden">
+                {adminsList.map((adm) => {
+                  const isSuper = adm.email.toLowerCase() === 'admin@nexus.com' || adm.email.toLowerCase() === 'superadmin@nexus.com';
+                  const allowedCount = isSuper
+                    ? TOTAL_SUB_ITEMS_COUNT
+                    : countAllowedPermissions(adm.permissions);
+
+                  return (
+                    <div
+                      key={adm.id}
+                      className="rounded-2xl border border-ink-200 bg-white p-4 shadow-sm space-y-3 dark:border-ink-800 dark:bg-ink-900"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-sm text-ink-900 dark:text-ink-50">{adm.full_name}</p>
+                          <p className="text-xs text-ink-400 break-all">{adm.email}</p>
+                        </div>
+                        <span className="shrink-0 inline-flex items-center rounded-md bg-ink-100 px-2 py-0.5 text-[10px] font-bold text-ink-700 uppercase dark:bg-ink-800 dark:text-ink-300">
+                          {isSuper ? 'Super Admin' : adm.role}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-b border-ink-100 py-2.5 dark:border-ink-800">
+                        {/* Status Badge */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Status</p>
+                          {isSuper ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE (Protected)
+                            </span>
+                          ) : adm.has_data_access ? (
+                            <button
+                              onClick={() => handleToggleStatus(adm.id)}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            >
+                              <span className="h-2 w-2 rounded-full bg-emerald-500"></span> ACTIVE
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleStatus(adm.id)}
+                              className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                            >
+                              <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Permissions Badge */}
+                        <div>
+                          <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Permissions</p>
+                          {isSuper ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+                              <Unlock className="h-3 w-3" /> Protected
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
+                              <FolderTree className="h-3 w-3" /> {allowedCount} Pages
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      {!isSuper && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            onClick={() => handleToggleStatus(adm.id)}
+                            className={`flex-1 rounded-xl py-1.5 text-xs font-semibold transition-colors text-center ${
+                              adm.has_data_access
+                                ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
+                                : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
+                            }`}
+                          >
+                            {adm.has_data_access ? 'Deactivate' : 'Activate'}
+                          </button>
+                          <button
+                            onClick={() => handleOpenEditAccess(adm)}
+                            className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-brand-50 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" /> Edit Access
+                          </button>
+                          <button
+                            onClick={() => handleDelete(adm.id)}
+                            className="rounded-xl p-2 text-ink-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50"
+                            title="Delete Admin"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Admins Table (Hidden on small screens, touch scrollable on medium screens) */}
+              <div className="hidden sm:block w-full max-w-full overflow-x-auto scrollbar-thin touch-scrolling rounded-2xl border border-ink-200 dark:border-ink-800">
+                <table className="w-full text-left text-xs min-w-[650px]">
                   <thead className="bg-ink-50 text-ink-500 uppercase font-semibold border-b border-ink-200 dark:bg-ink-950 dark:border-ink-800 dark:text-ink-400">
                     <tr>
                       <th className="px-5 py-3.5">Admin Name & Email</th>
                       <th className="px-5 py-3.5">Role</th>
+                      <th className="px-5 py-3.5">Account Status</th>
                       <th className="px-5 py-3.5">Module Permissions Allowed</th>
                       <th className="px-5 py-3.5 text-right">Actions</th>
                     </tr>
@@ -618,11 +759,38 @@ export function AdminManagementPage() {
                             </div>
                             <div className="text-xs text-ink-400">{adm.email}</div>
                           </td>
+
                           <td className="px-5 py-4">
                             <span className="inline-flex items-center rounded-md bg-ink-100 px-2.5 py-1 text-xs font-semibold text-ink-700 uppercase dark:bg-ink-800 dark:text-ink-300">
                               {isSuper ? 'Super Admin' : adm.role}
                             </span>
                           </td>
+
+                          {/* Account Active / Deactive Status Badge */}
+                          <td className="px-5 py-4">
+                            {isSuper ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE (Protected)
+                              </span>
+                            ) : adm.has_data_access ? (
+                              <button
+                                onClick={() => handleToggleStatus(adm.id)}
+                                className="group inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 transition-all cursor-pointer"
+                                title="Click to Deactivate Admin"
+                              >
+                                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span> ACTIVE
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleToggleStatus(adm.id)}
+                                className="group inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800 hover:bg-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900/60 transition-all cursor-pointer"
+                                title="Click to Activate Admin"
+                              >
+                                <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
+                              </button>
+                            )}
+                          </td>
+
                           <td className="px-5 py-4">
                             {isSuper ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
@@ -642,11 +810,22 @@ export function AdminManagementPage() {
                               </span>
                             )}
                           </td>
+
                           <td className="px-5 py-4 text-right">
                             {isSuper ? (
                               <span className="text-xs text-ink-400 italic">Protected</span>
                             ) : (
                               <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleToggleStatus(adm.id)}
+                                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                                    adm.has_data_access
+                                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
+                                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
+                                  }`}
+                                >
+                                  {adm.has_data_access ? 'Deactivate' : 'Activate'}
+                                </button>
                                 <button
                                   onClick={() => handleOpenEditAccess(adm)}
                                   className="flex items-center gap-1.5 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
@@ -672,7 +851,6 @@ export function AdminManagementPage() {
             </div>
           )}
         </div>
-      </Card>
 
       {/* Edit Granular Access Drawer / Modal */}
       <AnimatePresence>

@@ -43,31 +43,35 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-ink-200 bg-white/80 px-4 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-950/80">
-      {/* Mobile menu */}
-      <button
-        onClick={onMenuClick}
-        className="rounded-lg p-2 text-ink-500 transition-colors hover:bg-ink-100 dark:hover:bg-ink-800 lg:hidden"
-      >
-        <Menu className="h-5 w-5" />
-      </button>
+    <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-2 border-b border-ink-200 bg-white/80 px-2.5 sm:px-4 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-950/80">
+      <div className="flex flex-1 items-center gap-2 max-w-md">
+        {/* Mobile menu */}
+        <button
+          onClick={onMenuClick}
+          className="shrink-0 rounded-lg p-2 text-ink-500 transition-colors hover:bg-ink-100 dark:hover:bg-ink-800 lg:hidden"
+          title="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
 
-      {/* Search */}
-      <div className="relative flex-1 max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
-        <input
-          type="text"
-          placeholder="Search anything..."
-          className="h-10 w-full rounded-xl border border-ink-200 bg-ink-50 pl-10 pr-4 text-sm text-ink-700 placeholder-ink-400 transition-all focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:focus:bg-ink-900"
-        />
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <input
+            type="text"
+            placeholder="Search..."
+            className="h-9 sm:h-10 w-full rounded-xl border border-ink-200 bg-ink-50 pl-9 sm:pl-10 pr-3 sm:pr-4 text-xs sm:text-sm text-ink-700 placeholder-ink-400 transition-all focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:focus:bg-ink-900"
+          />
+        </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
         {/* Notifications */}
         <div className="relative" ref={notifRef}>
           <button
             onClick={() => setNotifOpen((v) => !v)}
             className="relative rounded-lg p-2 text-ink-500 transition-all hover:bg-ink-100 dark:hover:bg-ink-800"
+            title="Notifications"
           >
             <Bell className="h-5 w-5" />
             <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-ink-950" />
@@ -79,7 +83,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.97 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-80 overflow-hidden rounded-xl border border-ink-200 bg-white shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
+                className="absolute right-0 top-12 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-ink-200 bg-white shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
               >
                 <div className="flex items-center justify-between border-b border-ink-200 px-4 py-3 dark:border-ink-800">
                   <p className="text-sm font-semibold text-ink-900 dark:text-ink-50">Notifications</p>
@@ -102,7 +106,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
           </AnimatePresence>
         </div>
 
-        <button onClick={() => alert('Opening Settings...')} className="rounded-lg p-2 text-ink-500 transition-all hover:bg-ink-100 dark:hover:bg-ink-800">
+        <button onClick={() => alert('Opening Settings...')} className="rounded-lg p-2 text-ink-500 transition-all hover:bg-ink-100 dark:hover:bg-ink-800" title="Settings">
           <Settings className="h-5 w-5" />
         </button>
 
@@ -110,7 +114,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
         <div className="relative" ref={profileRef}>
           <button
             onClick={() => setProfileOpen((v) => !v)}
-            className="flex items-center gap-2 rounded-lg py-1 pl-1 pr-2 transition-colors hover:bg-ink-100 dark:hover:bg-ink-800"
+            className="flex items-center gap-2 rounded-lg py-1 pl-1 pr-1.5 transition-colors hover:bg-ink-100 dark:hover:bg-ink-800"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-accent-500 text-xs font-bold text-white">
               {initials}
@@ -128,11 +132,11 @@ export function Topbar({ onMenuClick }: TopbarProps) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.97 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-64 overflow-hidden rounded-xl border border-ink-200 bg-white shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
+                className="absolute right-0 top-12 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-ink-200 bg-white shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
               >
                 <div className="border-b border-ink-200 px-4 py-3 dark:border-ink-800">
                   <p className="text-sm font-semibold text-ink-900 dark:text-ink-50">{displayName}</p>
-                  <p className="text-xs text-ink-500 dark:text-ink-400">{displayEmail}</p>
+                  <p className="truncate text-xs text-ink-500 dark:text-ink-400">{displayEmail}</p>
                 </div>
                 {[
                   { icon: User, label: 'My Profile' },

@@ -36,6 +36,7 @@ import {
   syncAdminsFromSupabase,
   addAdmin,
   updateAdminPermissions,
+  toggleAdminDataAccess,
   deleteAdmin,
   MODULE_CATEGORIES,
   getNestedCrudPermissions,
@@ -127,6 +128,13 @@ export function TeamManagementPage() {
     syncAdminsFromSupabase().then((latest) => {
       setTeamList(latest.filter((u) => u.role === 'sales' || u.role === 'staff'));
     });
+  };
+
+  const handleToggleStatus = (memberId: string) => {
+    const nextState = toggleAdminDataAccess(memberId);
+    refreshList();
+    setSuccessMsg(nextState ? 'Team member account activated successfully.' : 'Team member account deactivated successfully.');
+    setTimeout(() => setSuccessMsg(null), 3500);
   };
 
   // Preset permissions helper  // Pre-fill default recommended permissions based on role (Sales vs Staff), filtered by Admin's own permissions
@@ -340,15 +348,15 @@ export function TeamManagementPage() {
       {/* Main Container Card */}
       <Card className="overflow-hidden p-0">
         {/* Navigation Header */}
-        <div className="flex border-b border-ink-200 bg-ink-50/50 px-6 dark:border-ink-800 dark:bg-ink-950/50">
-          <div className="flex items-center gap-2 border-b-2 border-brand-600 py-4 px-6 text-sm font-semibold text-brand-600 dark:border-brand-400 dark:text-brand-400">
+        <div className="flex border-b border-ink-200 bg-ink-50/50 px-4 sm:px-6 dark:border-ink-800 dark:bg-ink-950/50">
+          <div className="flex items-center gap-2 border-b-2 border-brand-600 py-3 sm:py-4 px-2 sm:px-6 text-xs sm:text-sm font-semibold text-brand-600 dark:border-brand-400 dark:text-brand-400">
             <Users className="h-4 w-4" />
             Team Accounts & Permissions ({teamList.length})
           </div>
         </div>
 
         {/* Tab Content */}
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {errorMsg && (
             <div className="mb-6 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
               <ShieldAlert className="h-5 w-5 shrink-0" />
@@ -364,13 +372,143 @@ export function TeamManagementPage() {
           )}
 
           <div className="space-y-6">
-            {/* Accounts Table */}
-            <div className="overflow-hidden rounded-2xl border border-ink-200 dark:border-ink-800">
-              <table className="w-full text-left text-xs">
+            {/* Summary KPI Cards for Active & Deactive Status */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="flex items-center justify-between rounded-2xl border border-ink-200 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+                <div>
+                  <p className="text-xs font-semibold text-ink-500 dark:text-ink-400">Total Team Members</p>
+                  <p className="mt-1 text-2xl font-black text-ink-900 dark:text-ink-50">{teamList.length}</p>
+                </div>
+                <Users className="h-8 w-8 text-brand-500/40" />
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/30">
+                <div>
+                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Active Members</p>
+                  <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">
+                    {teamList.filter((a) => a.has_data_access).length}
+                  </p>
+                </div>
+                <div className="relative flex h-4 w-4">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm dark:border-rose-900/40 dark:bg-rose-950/30">
+                <div>
+                  <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Deactive Members</p>
+                  <p className="mt-1 text-2xl font-black text-rose-800 dark:text-rose-300">
+                    {teamList.filter((a) => !a.has_data_access).length}
+                  </p>
+                </div>
+                <div className="h-4 w-4 rounded-full bg-rose-500 shadow-sm"></div>
+              </div>
+            </div>
+
+            {/* Mobile Card List View (Visible on small screens < 640px) */}
+            <div className="space-y-3 sm:hidden">
+              {teamList.map((u) => {
+                const allowedCount = countAllowedPermissions(u.permissions);
+
+                return (
+                  <div
+                    key={u.id}
+                    className="rounded-2xl border border-ink-200 bg-white p-4 shadow-sm space-y-3 dark:border-ink-800 dark:bg-ink-900"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-sm text-ink-900 dark:text-ink-50">{u.full_name}</p>
+                        <p className="text-xs text-ink-400 break-all">{u.email}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          u.role === 'sales'
+                            ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
+                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                        }`}
+                      >
+                        {u.role === 'sales' ? 'Sales' : 'Staff'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-b border-ink-100 py-2.5 dark:border-ink-800">
+                      {/* Status Badge */}
+                      <div>
+                        <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Status</p>
+                        {u.has_data_access ? (
+                          <button
+                            onClick={() => handleToggleStatus(u.id)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleToggleStatus(u.id)}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
+                          >
+                            <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Permissions Badge */}
+                      <div>
+                        <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Permissions</p>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
+                          <FolderTree className="h-3 w-3" /> {allowedCount} Pages
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => handleToggleStatus(u.id)}
+                        className={`flex-1 rounded-xl py-1.5 text-xs font-semibold transition-colors text-center ${
+                          u.has_data_access
+                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
+                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
+                        }`}
+                      >
+                        {u.has_data_access ? 'Deactivate' : 'Activate'}
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenEditAccess(u)}
+                        className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-brand-50 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" /> Edit Access
+                      </button>
+
+                      <button
+                        onClick={() => handleDelete(u.id)}
+                        className="rounded-xl p-2 text-ink-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50"
+                        title="Delete Member"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {teamList.length === 0 && (
+                <div className="py-8 text-center text-xs text-ink-400">
+                  No sales or staff members created yet.
+                </div>
+              )}
+            </div>
+
+            {/* Accounts Table (Hidden on small screens, touch scrollable on medium screens) */}
+            <div className="hidden sm:block w-full max-w-full overflow-x-auto scrollbar-thin touch-scrolling rounded-2xl border border-ink-200 dark:border-ink-800">
+              <table className="w-full text-left text-xs min-w-[650px]">
                 <thead className="bg-ink-50 text-ink-500 uppercase font-semibold border-b border-ink-200 dark:bg-ink-950 dark:border-ink-800 dark:text-ink-400">
                   <tr>
                     <th className="px-5 py-3.5">Member Name & Email</th>
                     <th className="px-5 py-3.5">Role Type</th>
+                    <th className="px-5 py-3.5">Account Status</th>
                     <th className="px-5 py-3.5">Module Permissions Allowed</th>
                     <th className="px-5 py-3.5 text-right">Actions</th>
                   </tr>
@@ -387,6 +525,7 @@ export function TeamManagementPage() {
                           </div>
                           <div className="text-xs text-ink-400">{u.email}</div>
                         </td>
+
                         <td className="px-5 py-4">
                           <span
                             className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold uppercase ${
@@ -398,6 +537,28 @@ export function TeamManagementPage() {
                             {u.role === 'sales' ? 'Sales Member' : 'Staff Member'}
                           </span>
                         </td>
+
+                        {/* Account Status Badge */}
+                        <td className="px-5 py-4">
+                          {u.has_data_access ? (
+                            <button
+                              onClick={() => handleToggleStatus(u.id)}
+                              className="group inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 transition-all cursor-pointer"
+                              title="Click to Deactivate Member"
+                            >
+                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span> ACTIVE
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleStatus(u.id)}
+                              className="group inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800 hover:bg-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900/60 transition-all cursor-pointer"
+                              title="Click to Activate Member"
+                            >
+                              <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
+                            </button>
+                          )}
+                        </td>
+
                         <td className="px-5 py-4">
                           {allowedCount > 0 ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
@@ -409,14 +570,27 @@ export function TeamManagementPage() {
                             </span>
                           )}
                         </td>
+
                         <td className="px-5 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleToggleStatus(u.id)}
+                              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                                u.has_data_access
+                                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
+                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
+                              }`}
+                            >
+                              {u.has_data_access ? 'Deactivate' : 'Activate'}
+                            </button>
+
                             <button
                               onClick={() => handleOpenEditAccess(u)}
                               className="flex items-center gap-1.5 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
                             >
                               <Edit2 className="h-3.5 w-3.5" /> Edit Access
                             </button>
+
                             <button
                               onClick={() => handleDelete(u.id)}
                               className="rounded-xl p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50"
@@ -432,7 +606,7 @@ export function TeamManagementPage() {
 
                   {teamList.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-12 text-center text-xs text-ink-400">
+                      <td colSpan={5} className="py-12 text-center text-xs text-ink-400">
                         No sales or staff members created yet.
                       </td>
                     </tr>

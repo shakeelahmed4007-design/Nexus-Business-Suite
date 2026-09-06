@@ -146,7 +146,7 @@ export function DashboardPage() {
 
               <button
                 onClick={() => navigate('/admin-management?tab=manage')}
-                className="hidden sm:flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
+                className="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
                 title="Manage Admin Access Control"
               >
                 <ShieldCheck className="h-3.5 w-3.5 text-brand-500" />
@@ -176,7 +176,7 @@ export function DashboardPage() {
 
               <button
                 onClick={handleOpenManageTeam}
-                className="hidden sm:flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
+                className="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
                 title="Manage Team Members & Access"
               >
                 <Users className="h-3.5 w-3.5 text-brand-500" />
