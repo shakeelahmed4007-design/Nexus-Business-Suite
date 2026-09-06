@@ -29,6 +29,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { Card } from '@/shared/components/ui/Card';
 import {
   getAdmins,
+  syncAdminsFromSupabase,
   addAdmin,
   updateAdminPermissions,
   deleteAdmin,
@@ -95,10 +96,12 @@ export function AdminManagementPage() {
 
   useEffect(() => {
     setAdminsList(getAdmins());
+    syncAdminsFromSupabase().then((list) => setAdminsList(list));
   }, []);
 
   const refreshList = () => {
     setAdminsList(getAdmins());
+    syncAdminsFromSupabase().then((list) => setAdminsList(list));
   };
 
   // Global Select All / Deselect All

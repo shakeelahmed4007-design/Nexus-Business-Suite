@@ -33,6 +33,7 @@ import { Card } from '@/shared/components/ui/Card';
 import { useAuth } from '@/shared/context/AuthContext';
 import {
   getAdmins,
+  syncAdminsFromSupabase,
   addAdmin,
   updateAdminPermissions,
   deleteAdmin,
@@ -122,8 +123,10 @@ export function TeamManagementPage() {
 
   const refreshList = () => {
     const all = getAdmins();
-    // Filter to sales and staff users (or non-superadmin users)
     setTeamList(all.filter((u) => u.role === 'sales' || u.role === 'staff'));
+    syncAdminsFromSupabase().then((latest) => {
+      setTeamList(latest.filter((u) => u.role === 'sales' || u.role === 'staff'));
+    });
   };
 
   // Preset permissions helper  // Pre-fill default recommended permissions based on role (Sales vs Staff), filtered by Admin's own permissions

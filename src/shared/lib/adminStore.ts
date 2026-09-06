@@ -270,6 +270,42 @@ export function saveAdmins(admins: AdminUser[]): void {
   }
 }
 
+export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
+  try {
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (!error && data && Array.isArray(data) && data.length > 0) {
+      const remoteAdmins: AdminUser[] = data.map((p: any) => {
+        let perms = p.permissions;
+        if (!perms || typeof perms !== 'object') {
+          perms = p.has_data_access ? getNestedCrudPermissions(true) : getNestedCrudPermissions(false);
+        }
+        return {
+          id: p.id,
+          full_name: p.full_name || p.email?.split('@')[0] || 'User',
+          email: p.email,
+          role: (p.role || 'staff') as 'admin' | 'shop_admin' | 'sales' | 'staff',
+          has_data_access: p.has_data_access ?? true,
+          permissions: perms,
+          created_at: p.created_at || new Date().toISOString(),
+          password: p.password || '123456',
+        };
+      });
+
+      const localAdmins = getAdmins();
+      const mergedMap = new Map<string, AdminUser>();
+      localAdmins.forEach((a) => mergedMap.set(a.email.toLowerCase(), a));
+      remoteAdmins.forEach((a) => mergedMap.set(a.email.toLowerCase(), a));
+
+      const mergedList = Array.from(mergedMap.values());
+      saveAdmins(mergedList);
+      return mergedList;
+    }
+  } catch (err) {
+    console.warn('syncAdminsFromSupabase error:', err);
+  }
+  return getAdmins();
+}
+
 export async function addAdmin(data: {
   full_name: string;
   email: string;
@@ -286,11 +322,10 @@ export async function addAdmin(data: {
   }
 
   const allowedCount = countAllowedPermissions(data.permissions);
-  const mappedRole = data.role === 'admin' ? 'shop_admin' : (data.role || 'staff');
-
+  const userRole = data.role || 'admin';
   let supabaseUserId: string | null = null;
 
-  // 1. Sync with Supabase Auth & Cloud Profiles Table
+  // 1. Sync with Supabase Auth
   try {
     const { data: authData, error: authErr } = await supabase.auth.signUp({
       email: cleanEmail,
@@ -298,37 +333,47 @@ export async function addAdmin(data: {
       options: {
         data: {
           full_name: data.full_name,
-          role: mappedRole,
+          role: userRole,
         },
       },
     });
 
     if (authData?.user) {
       supabaseUserId = authData.user.id;
-      // Direct upsert to public.profiles table in Supabase
-      const { error: profileErr } = await supabase.from('profiles').upsert({
-        id: authData.user.id,
-        email: cleanEmail,
-        full_name: data.full_name,
-        role: mappedRole,
-      });
-
-      if (profileErr) {
-        console.warn('Supabase profile creation notice:', profileErr.message);
-      }
     } else if (authErr) {
       console.warn('Supabase Auth signUp notice:', authErr.message);
     }
   } catch (err) {
-    console.warn('Error syncing admin to Supabase:', err);
+    console.warn('Error syncing admin to Supabase Auth:', err);
+  }
+
+  const finalId = supabaseUserId || ('user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7));
+
+  // 2. Direct upsert to public.profiles table in Supabase
+  try {
+    const { error: profileErr } = await supabase.from('profiles').upsert({
+      id: finalId,
+      email: cleanEmail,
+      full_name: data.full_name,
+      role: userRole,
+      has_data_access: allowedCount > 0,
+      permissions: data.permissions,
+      password: data.password || '123456',
+    });
+
+    if (profileErr) {
+      console.warn('Supabase profiles upsert warning:', profileErr.message);
+    }
+  } catch (err) {
+    console.warn('Supabase profiles error:', err);
   }
 
   const newAdmin: AdminUser = {
-    id: supabaseUserId || ('user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7)),
+    id: finalId,
     full_name: data.full_name,
     email: cleanEmail,
     password: data.password || '123456',
-    role: data.role || 'admin',
+    role: userRole,
     has_data_access: allowedCount > 0,
     permissions: data.permissions || getNestedCrudPermissions(false),
     created_at: new Date().toISOString(),
@@ -350,6 +395,20 @@ export function updateAdminPermissions(
     admins[index].permissions = permissions;
     admins[index].has_data_access = allowedCount > 0;
     saveAdmins(admins);
+
+    // Async cloud sync to Supabase profiles
+    supabase
+      .from('profiles')
+      .update({
+        permissions: permissions,
+        has_data_access: allowedCount > 0,
+      })
+      .eq('email', admins[index].email)
+      .then(({ error }) => {
+        if (error) console.warn('Supabase update permissions warning:', error.message);
+      })
+      .catch((err) => console.warn('Supabase update permissions error:', err));
+
     return admins[index];
   }
   return undefined;
@@ -363,6 +422,19 @@ export function toggleAdminDataAccess(adminId: string): boolean {
     admins[index].has_data_access = targetState;
     admins[index].permissions = getNestedCrudPermissions(targetState);
     saveAdmins(admins);
+
+    supabase
+      .from('profiles')
+      .update({
+        permissions: admins[index].permissions,
+        has_data_access: targetState,
+      })
+      .eq('email', admins[index].email)
+      .then(({ error }) => {
+        if (error) console.warn('Supabase toggle access warning:', error.message);
+      })
+      .catch((err) => console.warn('Supabase toggle access error:', err));
+
     return targetState;
   }
   return false;
@@ -374,7 +446,9 @@ export async function deleteAdmin(adminId: string): Promise<void> {
   if (target) {
     try {
       await supabase.from('profiles').delete().eq('email', target.email);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Supabase delete profile notice:', e);
+    }
   }
   const updated = admins.filter((a) => a.id !== adminId);
   saveAdmins(updated);
