@@ -6,7 +6,14 @@
  * 2. If user has a local/mock session (nexus_current_session) ? send as X-Mock-Session header
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+function getApiBase(): string {
+  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  try {
+    const custom = localStorage.getItem('nexus_api_url');
+    if (custom) return custom;
+  } catch {}
+  return 'http://localhost:5000';
+}
 
 interface MockSession {
   id: string;
@@ -68,7 +75,7 @@ function buildHeaders(): Record<string, string> {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${getApiBase()}${path}`, {
     method,
     headers: buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,

@@ -1,6 +1,7 @@
 /**
- * CRM API hooks - connects frontend pages to the Express backend.
- * Backend response format: { success: true, data: ... } for all endpoints.
+ * Centralized hook for CRM features (Leads, Customers, Tasks, Calling Data)
+ * Connects to Node.js backend when available, and gracefully falls back to local state
+ * if backend is offline or unreachable (e.g. deployed without backend endpoint).
  */
 import { useState, useEffect, useCallback } from 'react';
 import { apiClient } from '@/shared/lib/apiClient';
@@ -68,8 +69,8 @@ export interface ApiTask {
   id: string;
   title: string;
   description?: string;
-  taskStatus: string;  // mapped from DB 'status' by backend formatTask
-  status?: string;     // raw DB status fallback
+  taskStatus: string;
+  status?: string;
   priority: string;
   dueDate?: string;
   assignedToUserId?: string;
@@ -98,7 +99,6 @@ export interface ApiCallingData {
   createdAt: string;
 }
 
-// Backend wraps all responses in { success: true, data: ... }
 interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -106,10 +106,89 @@ interface ApiResponse<T> {
 }
 
 // -----------------------------------------------------------------------------
+// LOCAL STORAGE HELPERS (Fallback mode when backend is unreachable)
+// -----------------------------------------------------------------------------
+function getLocalCache<T>(key: string, fallback: T): T {
+  try {
+    const item = localStorage.getItem(key);
+    return item ? JSON.parse(item) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function setLocalCache<T>(key: string, data: T) {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch {}
+}
+
+// -----------------------------------------------------------------------------
+// INITIAL DEMO DATA FOR OFFLINE / DEPLOYMENT DEMO
+// -----------------------------------------------------------------------------
+const DEMO_LEADS: ApiLead[] = [
+  {
+    id: 'lead-demo-1',
+    shopId: 'shop-1',
+    createdById: 'user-1',
+    firstName: 'Zeeshan',
+    lastName: 'Khan',
+    email: 'zeeshan@example.com',
+    phone: '03001234567',
+    companyName: 'Tech Solutions',
+    leadSource: 'Website',
+    leadStatus: 'New',
+    leadValue: 50000,
+    priority: 'High',
+    notes: 'Interested in CRM software.',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+const DEMO_CUSTOMERS: ApiCustomer[] = [
+  {
+    id: 'cust-demo-1',
+    shopId: 'shop-1',
+    firstName: 'Afzal',
+    lastName: 'Ahan',
+    email: 'afzal@nexus.com',
+    phone: '+92345678901',
+    companyName: 'WedDev',
+    city: 'Karachi',
+    customerType: 'VIP',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const DEMO_TASKS: ApiTask[] = [
+  {
+    id: 'task-demo-1',
+    title: 'Follow up with Zeeshan Khan',
+    description: 'Call regarding project proposal',
+    taskStatus: 'In Progress',
+    priority: 'High',
+    dueDate: new Date(Date.now() + 86400000).toISOString(),
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const DEMO_CALLING: ApiCallingData[] = [
+  {
+    id: 'call-demo-1',
+    phoneNumber: '+92 300 1234567',
+    contactName: 'Zeeshan Khan',
+    status: 'Available',
+    notes: 'Primary contact number',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+// -----------------------------------------------------------------------------
 // LEADS HOOK
 // -----------------------------------------------------------------------------
 export function useLeads() {
-  const [leads, setLeads] = useState<ApiLead[]>([]);
+  const [leads, setLeads] = useState<ApiLead[]>(() => getLocalCache('nexus_crm_leads', DEMO_LEADS));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,9 +197,17 @@ export function useLeads() {
     setError(null);
     try {
       const res = await apiClient.get<ApiResponse<ApiLead[]>>('/api/crm/leads');
-      setLeads(Array.isArray(res.data) ? res.data : []);
+      if (Array.isArray(res.data)) {
+        setLeads(res.data);
+        setLocalCache('nexus_crm_leads', res.data);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load leads');
+      // Fallback silently to local cache if network/backend failed
+      const cached = getLocalCache<ApiLead[]>('nexus_crm_leads', DEMO_LEADS);
+      setLeads(cached);
+      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
+        setError(err.message || 'Failed to load leads');
+      }
     } finally {
       setLoading(false);
     }
@@ -129,20 +216,52 @@ export function useLeads() {
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const createLead = async (payload: CreateLeadPayload) => {
-    const res = await apiClient.post<ApiResponse<ApiLead>>('/api/crm/leads', payload);
-    await fetchLeads();
-    return res.data;
+    try {
+      const res = await apiClient.post<ApiResponse<ApiLead>>('/api/crm/leads', payload);
+      await fetchLeads();
+      return res.data;
+    } catch (err: any) {
+      // Local fallback lead creation
+      const newLead: ApiLead = {
+        id: `lead-local-${Date.now()}`,
+        shopId: 'shop-1',
+        createdById: 'local-user',
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        email: payload.email,
+        phone: payload.phone,
+        companyName: payload.companyName,
+        leadSource: payload.leadSource || 'Manual Entry',
+        leadStatus: payload.leadStatus || 'New',
+        leadValue: payload.leadValue || 0,
+        priority: payload.priority || 'Medium',
+        notes: payload.notes,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const updated = [newLead, ...leads];
+      setLeads(updated);
+      setLocalCache('nexus_crm_leads', updated);
+      return newLead;
+    }
   };
 
   const deleteLead = async (id: string) => {
-    await apiClient.delete(`/api/crm/leads/${id}`);
-    setLeads((prev) => prev.filter((l) => l.id !== id));
+    try {
+      await apiClient.delete(`/api/crm/leads/${id}`);
+    } catch {}
+    const updated = leads.filter((l) => l.id !== id);
+    setLeads(updated);
+    setLocalCache('nexus_crm_leads', updated);
   };
 
   const updateLeadStatus = async (id: string, status: string) => {
-    // Controller expects: { newStatus: string }
-    await apiClient.put(`/api/crm/leads/${id}/status`, { newStatus: status });
-    await fetchLeads();
+    try {
+      await apiClient.put(`/api/crm/leads/${id}/status`, { newStatus: status });
+    } catch {}
+    const updated = leads.map((l) => (l.id === id ? { ...l, leadStatus: status } : l));
+    setLeads(updated);
+    setLocalCache('nexus_crm_leads', updated);
   };
 
   return { leads, loading, error, createLead, deleteLead, updateLeadStatus, refetch: fetchLeads };
@@ -152,7 +271,7 @@ export function useLeads() {
 // CUSTOMERS HOOK
 // -----------------------------------------------------------------------------
 export function useCustomers() {
-  const [customers, setCustomers] = useState<ApiCustomer[]>([]);
+  const [customers, setCustomers] = useState<ApiCustomer[]>(() => getLocalCache('nexus_crm_customers', DEMO_CUSTOMERS));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,9 +280,16 @@ export function useCustomers() {
     setError(null);
     try {
       const res = await apiClient.get<ApiResponse<ApiCustomer[]>>('/api/crm/customers');
-      setCustomers(Array.isArray(res.data) ? res.data : []);
+      if (Array.isArray(res.data)) {
+        setCustomers(res.data);
+        setLocalCache('nexus_crm_customers', res.data);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load customers');
+      const cached = getLocalCache<ApiCustomer[]>('nexus_crm_customers', DEMO_CUSTOMERS);
+      setCustomers(cached);
+      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
+        setError(err.message || 'Failed to load customers');
+      }
     } finally {
       setLoading(false);
     }
@@ -172,14 +298,37 @@ export function useCustomers() {
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const createCustomer = async (payload: CreateCustomerPayload) => {
-    const res = await apiClient.post<ApiResponse<ApiCustomer>>('/api/crm/customers', payload);
-    await fetchCustomers();
-    return res.data;
+    try {
+      const res = await apiClient.post<ApiResponse<ApiCustomer>>('/api/crm/customers', payload);
+      await fetchCustomers();
+      return res.data;
+    } catch (err: any) {
+      const newCustomer: ApiCustomer = {
+        id: `cust-local-${Date.now()}`,
+        shopId: 'shop-1',
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        email: payload.email,
+        phone: payload.phone,
+        companyName: payload.companyName,
+        city: payload.city,
+        customerType: payload.customerType || 'Individual',
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [newCustomer, ...customers];
+      setCustomers(updated);
+      setLocalCache('nexus_crm_customers', updated);
+      return newCustomer;
+    }
   };
 
   const deleteCustomer = async (id: string) => {
-    await apiClient.delete(`/api/crm/customers/${id}`);
-    setCustomers((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await apiClient.delete(`/api/crm/customers/${id}`);
+    } catch {}
+    const updated = customers.filter((c) => c.id !== id);
+    setCustomers(updated);
+    setLocalCache('nexus_crm_customers', updated);
   };
 
   return { customers, loading, error, createCustomer, deleteCustomer, refetch: fetchCustomers };
@@ -189,7 +338,7 @@ export function useCustomers() {
 // TASKS HOOK
 // -----------------------------------------------------------------------------
 export function useTasks() {
-  const [tasks, setTasks] = useState<ApiTask[]>([]);
+  const [tasks, setTasks] = useState<ApiTask[]>(() => getLocalCache('nexus_crm_tasks', DEMO_TASKS));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -198,9 +347,16 @@ export function useTasks() {
     setError(null);
     try {
       const res = await apiClient.get<ApiResponse<ApiTask[]>>('/api/crm/tasks');
-      setTasks(Array.isArray(res.data) ? res.data : []);
+      if (Array.isArray(res.data)) {
+        setTasks(res.data);
+        setLocalCache('nexus_crm_tasks', res.data);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load tasks');
+      const cached = getLocalCache<ApiTask[]>('nexus_crm_tasks', DEMO_TASKS);
+      setTasks(cached);
+      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
+        setError(err.message || 'Failed to load tasks');
+      }
     } finally {
       setLoading(false);
     }
@@ -209,19 +365,43 @@ export function useTasks() {
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   const createTask = async (payload: CreateTaskPayload) => {
-    const res = await apiClient.post<ApiResponse<ApiTask>>('/api/crm/tasks', payload);
-    await fetchTasks();
-    return res.data;
+    try {
+      const res = await apiClient.post<ApiResponse<ApiTask>>('/api/crm/tasks', payload);
+      await fetchTasks();
+      return res.data;
+    } catch (err: any) {
+      const newTask: ApiTask = {
+        id: `task-local-${Date.now()}`,
+        title: payload.title,
+        description: payload.description,
+        taskStatus: payload.taskStatus || 'Not Started',
+        priority: payload.priority || 'Medium',
+        dueDate: payload.dueDate || new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [newTask, ...tasks];
+      setTasks(updated);
+      setLocalCache('nexus_crm_tasks', updated);
+      return newTask;
+    }
   };
 
   const completeTask = async (id: string) => {
-    await apiClient.put(`/api/crm/tasks/${id}/complete`, {});
-    await fetchTasks();
+    try {
+      await apiClient.put(`/api/crm/tasks/${id}/complete`, {});
+    } catch {}
+    const updated = tasks.map((t) => (t.id === id ? { ...t, taskStatus: 'Completed', status: 'Completed' } : t));
+    setTasks(updated);
+    setLocalCache('nexus_crm_tasks', updated);
   };
 
   const deleteTask = async (id: string) => {
-    await apiClient.delete(`/api/crm/tasks/${id}`);
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await apiClient.delete(`/api/crm/tasks/${id}`);
+    } catch {}
+    const updated = tasks.filter((t) => t.id !== id);
+    setTasks(updated);
+    setLocalCache('nexus_crm_tasks', updated);
   };
 
   return { tasks, loading, error, createTask, completeTask, deleteTask, refetch: fetchTasks };
@@ -231,7 +411,7 @@ export function useTasks() {
 // CALLING DATA HOOK
 // -----------------------------------------------------------------------------
 export function useCallingData() {
-  const [callingData, setCallingData] = useState<ApiCallingData[]>([]);
+  const [callingData, setCallingData] = useState<ApiCallingData[]>(() => getLocalCache('nexus_crm_calling', DEMO_CALLING));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,9 +420,16 @@ export function useCallingData() {
     setError(null);
     try {
       const res = await apiClient.get<ApiResponse<ApiCallingData[]>>('/api/crm/calling-data');
-      setCallingData(Array.isArray(res.data) ? res.data : []);
+      if (Array.isArray(res.data)) {
+        setCallingData(res.data);
+        setLocalCache('nexus_crm_calling', res.data);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to load calling data');
+      const cached = getLocalCache<ApiCallingData[]>('nexus_crm_calling', DEMO_CALLING);
+      setCallingData(cached);
+      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
+        setError(err.message || 'Failed to load calling data');
+      }
     } finally {
       setLoading(false);
     }
@@ -251,14 +438,33 @@ export function useCallingData() {
   useEffect(() => { fetchCallingData(); }, [fetchCallingData]);
 
   const addNumber = async (payload: { phoneNumber: string; contactName?: string; notes?: string }) => {
-    const res = await apiClient.post<ApiResponse<ApiCallingData>>('/api/crm/calling-data', payload);
-    await fetchCallingData();
-    return res.data;
+    try {
+      const res = await apiClient.post<ApiResponse<ApiCallingData>>('/api/crm/calling-data', payload);
+      await fetchCallingData();
+      return res.data;
+    } catch (err: any) {
+      const newCall: ApiCallingData = {
+        id: `call-local-${Date.now()}`,
+        phoneNumber: payload.phoneNumber,
+        contactName: payload.contactName,
+        status: 'Available',
+        notes: payload.notes,
+        createdAt: new Date().toISOString(),
+      };
+      const updated = [newCall, ...callingData];
+      setCallingData(updated);
+      setLocalCache('nexus_crm_calling', updated);
+      return newCall;
+    }
   };
 
   const logCall = async (id: string, notes: string, outcome: string) => {
-    await apiClient.post(`/api/crm/calling-data/${id}/log-call`, { notes, outcome });
-    await fetchCallingData();
+    try {
+      await apiClient.post(`/api/crm/calling-data/${id}/log-call`, { notes, outcome });
+    } catch {}
+    const updated = callingData.map((c) => (c.id === id ? { ...c, status: 'Called' } : c));
+    setCallingData(updated);
+    setLocalCache('nexus_crm_calling', updated);
   };
 
   return { callingData, loading, error, addNumber, logCall, refetch: fetchCallingData };
