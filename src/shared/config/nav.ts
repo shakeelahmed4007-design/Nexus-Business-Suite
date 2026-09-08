@@ -34,6 +34,7 @@ export type NavItem = {
 export const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, group: 'Overview', allowedRoles: ['Admin', 'Call Agent', 'Inventory Manager', 'HR'] },
   { label: 'Reports', path: '/reports', icon: BarChart3, group: 'Overview', allowedRoles: ['Admin', 'Call Agent', 'Inventory Manager', 'HR'] },
+  { label: 'Team Management', path: '/overview/team-management', icon: Users, group: 'Overview', allowedRoles: ['super_admin'] },
 
   { label: 'Lead Management', path: '/leads', icon: Users, group: 'CRM', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Customer Data', path: '/customers', icon: UserCircle, group: 'CRM', allowedRoles: ['Admin', 'Call Agent'] },

@@ -99,8 +99,13 @@ function SidebarContent({
 
   // Filter sidebar menu items dynamically based on current admin permissions
   const filteredNavItems = navItems.filter((n) => {
+    if (n.path === '/admin-management') {
+      return isSuperAdmin;
+    }
+    if (n.path === '/overview/team-management' || n.path === '/team-management') {
+      return true;
+    }
     if (isSuperAdmin) return true;
-    if (n.path === '/admin-management') return isSuperAdmin;
     const key = moduleKeyMap[n.path];
     if (!key) return true;
     const flags = getCrudFlags(permissions, key);

@@ -96,13 +96,25 @@ export function AdminManagementPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setAdminsList(getAdmins());
-    syncAdminsFromSupabase().then((list) => setAdminsList(list));
+    refreshList();
   }, []);
 
+  const ADMIN_ROLES = ['admin', 'shop_admin', 'super_admin', 'super admin'];
+
   const refreshList = () => {
-    setAdminsList(getAdmins());
-    syncAdminsFromSupabase().then((list) => setAdminsList(list));
+    const all = getAdmins();
+    const adminsOnly = all.filter((u) => {
+      const r = (u.role || '').toLowerCase().trim();
+      return ADMIN_ROLES.includes(r);
+    });
+    setAdminsList(adminsOnly);
+    syncAdminsFromSupabase().then((list) => {
+      const filtered = list.filter((u) => {
+        const r = (u.role || '').toLowerCase().trim();
+        return ADMIN_ROLES.includes(r);
+      });
+      setAdminsList(filtered);
+    });
   };
 
   const handleToggleStatus = (adminId: string) => {
@@ -892,28 +904,79 @@ export function AdminManagementPage() {
                   const isExpanded = Boolean(editingExpanded[catName]);
                   const catObject = editingPermissions[catName] || {};
 
+                  const selectedInCatCount = moduleCat.items.filter((item) =>
+                    Boolean(catObject[item.key]?.access)
+                  ).length;
+                  const isCatAllSelected = selectedInCatCount === moduleCat.items.length && moduleCat.items.length > 0;
+
+                  const handleCategorySelectAll = (categoryName: string, checked: boolean) => {
+                    setEditingPermissions((prev) => {
+                      const updatedCat = { ...(prev[categoryName] || {}) };
+                      const catDef = MODULE_CATEGORIES.find((c) => c.category === categoryName);
+                      if (catDef) {
+                        catDef.items.forEach((item) => {
+                          updatedCat[item.key] = {
+                            access: checked,
+                            can_create: checked,
+                            can_edit: checked,
+                            can_delete: checked,
+                          };
+                        });
+                      }
+                      return {
+                        ...prev,
+                        [categoryName]: updatedCat,
+                      };
+                    });
+                  };
+
                   return (
                     <div
                       key={catName}
                       className="overflow-hidden rounded-xl border border-ink-200 bg-white transition-shadow dark:border-ink-800 dark:bg-ink-950"
                     >
                       <div className="flex items-center justify-between bg-ink-50/70 px-4 py-3 dark:bg-ink-900/70">
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isCatAllSelected}
+                            onChange={(e) => handleCategorySelectAll(catName, e.target.checked)}
+                            className="h-4 w-4 accent-brand-600 rounded cursor-pointer"
+                            title={`Select/Deselect all sub-pages in ${catName} Module`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingExpanded((prev) => ({
+                                ...prev,
+                                [catName]: !prev[catName],
+                              }))
+                            }
+                            className="flex items-center gap-2 text-left text-xs font-bold text-ink-900 dark:text-ink-100 cursor-pointer"
+                          >
+                            <ChevronDown
+                              className={`h-4 w-4 text-ink-400 transition-transform ${
+                                isExpanded ? 'rotate-180' : ''
+                              }`}
+                            />
+                            <span>{catName} Module</span>
+                            <span className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-semibold text-ink-600 shadow-sm dark:bg-ink-800 dark:text-ink-300">
+                              {selectedInCatCount} / {moduleCat.items.length} Allowed
+                            </span>
+                          </button>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() =>
-                            setEditingExpanded((prev) => ({
-                              ...prev,
-                              [catName]: !prev[catName],
-                            }))
-                          }
-                          className="flex items-center gap-2.5 text-left text-xs font-bold text-ink-900 dark:text-ink-100"
+                          onClick={() => handleCategorySelectAll(catName, !isCatAllSelected)}
+                          className="flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink-700 shadow-sm hover:bg-ink-100 dark:bg-ink-800 dark:text-ink-200 dark:hover:bg-ink-700 cursor-pointer"
                         >
-                          <ChevronDown
-                            className={`h-4 w-4 text-ink-400 transition-transform ${
-                              isExpanded ? 'rotate-180' : ''
-                            }`}
-                          />
-                          <span>{catName} Module</span>
+                          {isCatAllSelected ? (
+                            <CheckSquare className="h-3.5 w-3.5 text-brand-600" />
+                          ) : (
+                            <Square className="h-3.5 w-3.5 text-ink-400" />
+                          )}
+                          <span>{isCatAllSelected ? 'Deselect Module' : `Select All ${catName}`}</span>
                         </button>
                       </div>
 

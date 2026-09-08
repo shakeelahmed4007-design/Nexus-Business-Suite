@@ -82,11 +82,16 @@ const chartTooltipStyle = {
 };
 
 import { QuickAddTeamModal } from '@/modules/Admin/QuickAddTeamModal';
+import { AddStaffModal } from '@/modules/Admin/AddStaffModal';
+import { AddSalesModal } from '@/modules/Admin/AddSalesModal';
 
 export function DashboardPage() {
   const navigate = useNavigate();
   const { hasAccess, isSuperAdmin } = useDataAccess('dashboard');
   const [quickAddRole, setQuickAddRole] = useState<'sales' | 'staff' | null>(null);
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
+
 
   // Compute displayed KPIs depending on data access permissions
   const displayKpis = hasAccess
@@ -131,22 +136,43 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening today.">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Super Admin Options */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Super Admin Options - 3 Primary Action Buttons in a Row (12px gap) */}
           {isSuperAdmin ? (
             <>
+              {/* Button 1: Add New Admin */}
               <button
                 onClick={() => navigate('/admin-management?tab=add')}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95"
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
                 title="Add new admin account"
               >
                 <UserPlus className="h-4 w-4" />
                 <span>Add New Admin</span>
               </button>
 
+              {/* Button 2: Add New Staff */}
+              <button
+                onClick={() => setIsStaffModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="Add new staff member"
+              >
+                <UserCheck className="h-4 w-4" />
+                <span>Add New Staff</span>
+              </button>
+
+              {/* Button 3: Add New Sales */}
+              <button
+                onClick={() => setIsSalesModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="Add new sales representative"
+              >
+                <Briefcase className="h-4 w-4" />
+                <span>Add New Sales</span>
+              </button>
+
               <button
                 onClick={() => navigate('/admin-management?tab=manage')}
-                className="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800"
+                className="flex items-center gap-1.5 rounded-xl border border-ink-200 bg-white px-3 py-1.5 text-xs font-semibold text-ink-700 shadow-sm transition-all hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200 dark:hover:bg-ink-800 cursor-pointer"
                 title="Manage Admin Access Control"
               >
                 <ShieldCheck className="h-3.5 w-3.5 text-brand-500" />
@@ -190,6 +216,7 @@ export function DashboardPage() {
           </Badge>
         </div>
       </PageHeader>
+
 
       {/* Show Access Pending Banner if Super Admin has not granted data access to this admin */}
       {!hasAccess && <AccessPendingBanner />}
@@ -404,6 +431,25 @@ export function DashboardPage() {
         role={quickAddRole || 'sales'}
         onClose={() => setQuickAddRole(null)}
       />
+
+      {/* Super Admin Dedicated Add Staff Modal */}
+      <AddStaffModal
+        isOpen={isStaffModalOpen}
+        onClose={() => setIsStaffModalOpen(false)}
+        onSuccess={() => {
+          navigate('/team-management');
+        }}
+      />
+
+      {/* Super Admin Dedicated Add Sales Modal */}
+      <AddSalesModal
+        isOpen={isSalesModalOpen}
+        onClose={() => setIsSalesModalOpen(false)}
+        onSuccess={() => {
+          navigate('/team-management');
+        }}
+      />
     </div>
   );
 }
+

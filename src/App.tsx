@@ -105,6 +105,7 @@ function App() {
                       <Route path="/forecasting" element={<ForecastingPage />} />
                       <Route path="/admin-management" element={<AdminManagementPage />} />
                       <Route path="/team-management" element={<TeamManagementPage />} />
+                      <Route path="/overview/team-management" element={<TeamManagementPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   </AppLayout>

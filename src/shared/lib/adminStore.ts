@@ -251,8 +251,17 @@ export function getAdmins(): AdminUser[] {
       if (!perms || typeof perms !== 'object') {
         perms = adm.has_data_access ? getNestedCrudPermissions(true) : getNestedCrudPermissions(false);
       }
+      let role = (adm.role || '').toLowerCase().trim();
+      const cleanEmail = (adm.email || '').toLowerCase().trim();
+      const isExplicitAdminEmail = cleanEmail.includes('admin') || cleanEmail === 'admin@nexus.com' || cleanEmail === 'superadmin@nexus.com';
+      if (!isExplicitAdminEmail && (role === 'admin' || role === '')) {
+        role = 'staff';
+      } else if (!role) {
+        role = isExplicitAdminEmail ? 'admin' : 'staff';
+      }
       return {
         ...adm,
+        role: role as any,
         permissions: perms,
       };
     });
@@ -274,24 +283,46 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
   try {
     const { data, error } = await supabase.from('profiles').select('*');
     if (!error && data && Array.isArray(data) && data.length > 0) {
+      const localAdmins = getAdmins();
+      const localMap = new Map<string, AdminUser>();
+      localAdmins.forEach((a) => localMap.set(a.email.toLowerCase(), a));
+
       const remoteAdmins: AdminUser[] = data.map((p: any) => {
         let perms = p.permissions;
         if (!perms || typeof perms !== 'object') {
           perms = p.has_data_access ? getNestedCrudPermissions(true) : getNestedCrudPermissions(false);
         }
+        const cleanEmail = (p.email || '').toLowerCase().trim();
+        const existingLocal = localMap.get(cleanEmail);
+        let userRole = (p.role || '').toLowerCase().trim();
+
+        if (existingLocal && existingLocal.role && existingLocal.role !== 'admin' && existingLocal.role !== 'shop_admin') {
+          userRole = existingLocal.role;
+        } else if (!userRole) {
+          userRole = cleanEmail.includes('admin') ? 'admin' : 'staff';
+        } else if (!cleanEmail.includes('admin') && userRole === 'admin') {
+          userRole = 'staff';
+        }
+
+        const createdByRole = p.created_by_role || existingLocal?.created_by_role || 'SUPER_ADMIN';
+        const createdByEmail = p.created_by_email || existingLocal?.created_by_email || 'admin@nexus.com';
+        const createdById = p.created_by_id || existingLocal?.created_by_id;
+
         return {
           id: p.id,
-          full_name: p.full_name || p.email?.split('@')[0] || 'User',
-          email: p.email,
-          role: (p.role || 'staff') as 'admin' | 'shop_admin' | 'sales' | 'staff',
+          full_name: p.full_name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
+          email: p.email || '',
+          role: userRole as any,
           has_data_access: p.has_data_access ?? true,
           permissions: perms,
           created_at: p.created_at || new Date().toISOString(),
           password: p.password || '123456',
+          created_by_role: createdByRole,
+          created_by_email: createdByEmail,
+          created_by_id: createdById,
         };
       });
 
-      const localAdmins = getAdmins();
       const mergedMap = new Map<string, AdminUser>();
       localAdmins.forEach((a) => mergedMap.set(a.email.toLowerCase(), a));
       remoteAdmins.forEach((a) => mergedMap.set(a.email.toLowerCase(), a));
@@ -309,10 +340,15 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
 export async function addAdmin(data: {
   full_name: string;
   email: string;
+  phone?: string;
+  department?: string;
+  status?: string;
+  shop_id?: string;
   password?: string;
-  role?: 'admin' | 'shop_admin' | 'sales' | 'staff';
+  role?: string;
   permissions: NestedCrudPermissions;
 }): Promise<AdminUser> {
+
   const admins = getAdmins();
   const cleanEmail = data.email.toLowerCase().trim();
   const existing = admins.find((a) => a.email.toLowerCase() === cleanEmail);
@@ -323,6 +359,10 @@ export async function addAdmin(data: {
 
   const allowedCount = countAllowedPermissions(data.permissions);
   const userRole = data.role || 'admin';
+  const created_by_role = data.created_by_role || 'SUPER_ADMIN';
+  const created_by_email = data.created_by_email || 'admin@nexus.com';
+  const created_by_id = data.created_by_id;
+
   let supabaseUserId: string | null = null;
 
   // 1. Sync with Supabase Auth
@@ -334,6 +374,9 @@ export async function addAdmin(data: {
         data: {
           full_name: data.full_name,
           role: userRole,
+          created_by_role,
+          created_by_email,
+          created_by_id,
         },
       },
     });
@@ -359,6 +402,9 @@ export async function addAdmin(data: {
       has_data_access: allowedCount > 0,
       permissions: data.permissions,
       password: data.password || '123456',
+      created_by_role,
+      created_by_email,
+      created_by_id,
     });
 
     if (profileErr) {
@@ -372,11 +418,18 @@ export async function addAdmin(data: {
     id: finalId,
     full_name: data.full_name,
     email: cleanEmail,
+    phone: data.phone,
+    department: data.department,
+    status: data.status || 'Active',
+    shop_id: data.shop_id,
     password: data.password || '123456',
-    role: userRole,
+    role: userRole as any,
     has_data_access: allowedCount > 0,
     permissions: data.permissions || getNestedCrudPermissions(false),
     created_at: new Date().toISOString(),
+    created_by_role,
+    created_by_email,
+    created_by_id,
   };
 
   admins.push(newAdmin);
@@ -391,8 +444,8 @@ export function updateAdminPermissions(
   const admins = getAdmins();
   const index = admins.findIndex((a) => a.id === adminId);
   if (index !== -1) {
-    const allowedCount = countAllowedPermissions(permissions);
     admins[index].permissions = permissions;
+    const allowedCount = countAllowedPermissions(permissions);
     admins[index].has_data_access = allowedCount > 0;
     saveAdmins(admins);
 
@@ -406,8 +459,7 @@ export function updateAdminPermissions(
       .eq('email', admins[index].email)
       .then(({ error }) => {
         if (error) console.warn('Supabase update permissions warning:', error.message);
-      })
-      .catch((err) => console.warn('Supabase update permissions error:', err));
+      });
 
     return admins[index];
   }
@@ -432,8 +484,7 @@ export function toggleAdminDataAccess(adminId: string): boolean {
       .eq('email', admins[index].email)
       .then(({ error }) => {
         if (error) console.warn('Supabase toggle access warning:', error.message);
-      })
-      .catch((err) => console.warn('Supabase toggle access error:', err));
+      });
 
     return targetState;
   }

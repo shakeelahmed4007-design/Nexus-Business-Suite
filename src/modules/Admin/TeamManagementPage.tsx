@@ -1,40 +1,31 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  UserPlus,
-  ShieldCheck,
-  CheckCircle2,
-  Lock,
-  Unlock,
-  Trash2,
   Users,
-  Key,
-  Mail,
-  User,
+  UserCheck,
+  Briefcase,
+  Trash2,
+  Lock,
   ShieldAlert,
-  CheckSquare,
-  Square,
+  CheckCircle2,
+  X,
   ChevronDown,
   Edit2,
   Check,
   FolderTree,
   ArrowLeft,
-  X,
-  PlusCircle,
-  Pencil,
-  Briefcase,
-  UserCheck,
-  Sparkles,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { PageHeader } from '@/shared/components/ui/PageHeader';
-import { Button } from '@/shared/components/ui/Button';
 import { Card } from '@/shared/components/ui/Card';
 import { useAuth } from '@/shared/context/AuthContext';
+import { AddStaffModal } from './AddStaffModal';
+import { AddSalesModal } from './AddSalesModal';
 import {
   getAdmins,
   syncAdminsFromSupabase,
-  addAdmin,
   updateAdminPermissions,
   toggleAdminDataAccess,
   deleteAdmin,
@@ -52,43 +43,18 @@ import {
 export function TeamManagementPage() {
   const { user, profile } = useAuth();
   const adminPerms = getEffectiveAdminPermissions(user?.email, profile?.role);
-
-  // Filter module categories & sub-items to ONLY show those allowed for the current logged-in Admin
-  const visibleCategories = MODULE_CATEGORIES.map((cat) => ({
-    ...cat,
-    items: cat.items.filter((item) => isPermissionAllowedByAdmin(adminPerms, cat.category, item.key)),
-  })).filter((cat) => cat.items.length > 0);
-
-  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const tabParam = searchParams.get('tab');
-  const roleParam = searchParams.get('role');
+  // Modals state
+  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
+  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'manage'>('manage');
+  // Data list state
+  const [teamList, setTeamList] = useState<AdminUser[]>([]);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // Form state
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('123456');
-  const [role, setRole] = useState<'sales' | 'staff'>(
-    roleParam === 'staff' ? 'staff' : 'sales'
-  );
-
-  // Nested CRUD permissions state
-  const [permissions, setPermissions] = useState<NestedCrudPermissions>(getNestedCrudPermissions(false));
-
-  // Accordion open/collapse states for module categories
-  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
-    Overview: true,
-    CRM: true,
-    Sales: true,
-    Inventory: true,
-    Organization: true,
-    Intelligence: true,
-  });
-
-  // Edit access state for an existing team member
+  // Edit Granular Access Modal state
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [editingPermissions, setEditingPermissions] = useState<NestedCrudPermissions>(getNestedCrudPermissions(false));
   const [editingExpanded, setEditingExpanded] = useState<Record<string, boolean>>({
@@ -100,33 +66,52 @@ export function TeamManagementPage() {
     Intelligence: true,
   });
 
-  const [teamList, setTeamList] = useState<AdminUser[]>([]);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (tabParam === 'manage') {
-      setActiveTab('manage');
-    } else if (tabParam === 'add') {
-      setActiveTab('add');
-    }
-
-    if (roleParam === 'staff') {
-      setRole('staff');
-    } else if (roleParam === 'sales') {
-      setRole('sales');
-    }
-  }, [tabParam, roleParam]);
+  const visibleCategories = MODULE_CATEGORIES.map((cat) => ({
+    ...cat,
+    items: cat.items.filter((item) => isPermissionAllowedByAdmin(adminPerms, cat.category, item.key)),
+  })).filter((cat) => cat.items.length > 0);
 
   useEffect(() => {
     refreshList();
   }, []);
 
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const currentRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
+  const isSuperAdmin = currentRole === 'super_admin' || (currentUserEmail !== '' && (currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || currentUserEmail.includes('superadmin')));
+  const ADMIN_ROLES = ['admin', 'shop_admin', 'super_admin', 'super admin'];
+
+  const isMemberAllowedForCurrentUser = (u: AdminUser) => {
+    if (!u) return false;
+    const r = (u.role || '').toLowerCase().trim();
+    if (ADMIN_ROLES.includes(r)) return false; // Never show admin accounts here
+
+    const itemCreatorRole = (u.created_by_role || '').toUpperCase();
+    const itemCreatorEmail = (u.created_by_email || '').toLowerCase().trim();
+    const itemCreatorId = u.created_by_id;
+
+    if (isSuperAdmin) {
+      // 1. Super Admin level: ONLY show staff/sales created by Super Admin
+      if (itemCreatorRole === 'ADMIN') return false; // Hide items created by regular Admins
+      return itemCreatorRole === 'SUPER_ADMIN' || itemCreatorEmail === currentUserEmail || !itemCreatorRole;
+    } else {
+      // 2. Admin level: ONLY show staff/sales created by THIS SPECIFIC ADMIN
+      if (itemCreatorRole === 'SUPER_ADMIN') return false; // Hide items created by Super Admin
+      if (itemCreatorEmail) {
+        return itemCreatorEmail === currentUserEmail;
+      }
+      if (itemCreatorId) {
+        return itemCreatorId === (user?.id || profile?.id);
+      }
+      return itemCreatorRole === 'ADMIN';
+    }
+  };
+
   const refreshList = () => {
     const all = getAdmins();
-    setTeamList(all.filter((u) => u.role === 'sales' || u.role === 'staff'));
+    const isolatedList = all.filter(isMemberAllowedForCurrentUser);
+    setTeamList(isolatedList);
     syncAdminsFromSupabase().then((latest) => {
-      setTeamList(latest.filter((u) => u.role === 'sales' || u.role === 'staff'));
+      setTeamList(latest.filter(isMemberAllowedForCurrentUser));
     });
   };
 
@@ -137,170 +122,12 @@ export function TeamManagementPage() {
     setTimeout(() => setSuccessMsg(null), 3500);
   };
 
-  // Preset permissions helper  // Pre-fill default recommended permissions based on role (Sales vs Staff), filtered by Admin's own permissions
-  const applyPresetPermissions = (targetRole: 'sales' | 'staff') => {
-    const newPerms = getNestedCrudPermissions(false);
-    if (targetRole === 'sales') {
-      MODULE_CATEGORIES.forEach((cat) => {
-        if (cat.category === 'Sales' || cat.category === 'CRM' || cat.category === 'Overview') {
-          newPerms[cat.category] = {};
-          cat.items.forEach((item) => {
-            const isAllowed = isPermissionAllowedByAdmin(adminPerms, cat.category, item.key);
-            newPerms[cat.category][item.key] = {
-              access: isAllowed,
-              can_create: isAllowed,
-              can_edit: isAllowed,
-              can_delete: false,
-            };
-          });
-        }
-      });
-    } else if (targetRole === 'staff') {
-      MODULE_CATEGORIES.forEach((cat) => {
-        if (cat.category === 'Inventory' || cat.category === 'Sales' || cat.category === 'Overview' || cat.category === 'Organization') {
-          newPerms[cat.category] = {};
-          cat.items.forEach((item) => {
-            const isAllowed = isPermissionAllowedByAdmin(adminPerms, cat.category, item.key);
-            newPerms[cat.category][item.key] = {
-              access: isAllowed,
-              can_create: isAllowed,
-              can_edit: false,
-              can_delete: false,
-            };
-          });
-        }
-      });
-    }
-    setPermissions(newPerms);
-    setSuccessMsg(`Applied standard permission preset for ${targetRole === 'sales' ? 'Sales Executive' : 'Staff Member'}.`);
-    setTimeout(() => setSuccessMsg(null), 3000);
-  };
-
-  // Global Select All / Deselect All (Only for items allowed for current Admin)
-  const handleGlobalSelectAll = (checked: boolean) => {
-    setPermissions((prev) => {
-      const next = getNestedCrudPermissions(false);
-      if (!checked) return next;
-      MODULE_CATEGORIES.forEach((cat) => {
-        next[cat.category] = {};
-        cat.items.forEach((item) => {
-          const isAllowed = isPermissionAllowedByAdmin(adminPerms, cat.category, item.key);
-          next[cat.category][item.key] = {
-            access: isAllowed,
-            can_create: isAllowed,
-            can_edit: isAllowed,
-            can_delete: isAllowed,
-          };
-        });
-      });
-      return next;
-    });
-  };
-
-  // Module-Level Select All for a specific category
-  const handleCategorySelectAll = (categoryName: string, checked: boolean) => {
-    setPermissions((prev) => {
-      const updatedCat = { ...(prev[categoryName] || {}) };
-      const catDef = MODULE_CATEGORIES.find((c) => c.category === categoryName);
-      if (catDef) {
-        catDef.items.forEach((item) => {
-          const isAllowed = isPermissionAllowedByAdmin(adminPerms, categoryName, item.key);
-          const val = checked && isAllowed;
-          updatedCat[item.key] = {
-            access: val,
-            can_create: val,
-            can_edit: val,
-            can_delete: val,
-          };
-        });
-      }
-      return {
-        ...prev,
-        [categoryName]: updatedCat,
-      };
-    });
-  };
-
-  // Toggle single action flag for a sub-item
-  const handleToggleAction = (
-    categoryName: string,
-    itemKey: string,
-    action: keyof ActionPermissions
-  ) => {
-    const isAllowed = isPermissionAllowedByAdmin(adminPerms, categoryName, itemKey);
-    if (!isAllowed) return;
-
-    setPermissions((prev) => {
-      const catObj = prev[categoryName] || {};
-      const currentItem: ActionPermissions = catObj[itemKey] || {
-        access: false,
-        can_create: false,
-        can_edit: false,
-        can_delete: false,
-      };
-
-      const newActionVal = !currentItem[action];
-      let updatedItem = { ...currentItem, [action]: newActionVal };
-
-      if (action !== 'access' && newActionVal) {
-        updatedItem.access = true;
-      }
-      if (action === 'access' && !newActionVal) {
-        updatedItem.can_create = false;
-        updatedItem.can_edit = false;
-        updatedItem.can_delete = false;
-      }
-
-      return {
-        ...prev,
-        [categoryName]: {
-          ...catObj,
-          [itemKey]: updatedItem,
-        },
-      };
-    });
-  };
-
-  // Accordion toggle
-  const toggleCategoryExpand = (categoryName: string) => {
-    setExpandedCategories((prev) => ({
-      ...prev,
-      [categoryName]: !prev[categoryName],
-    }));
-  };
-
-  const handleCreateTeamMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-    setSuccessMsg(null);
-
-    if (!fullName.trim() || !email.trim()) {
-      setErrorMsg('Please enter both name and email.');
-      return;
-    }
-
-    try {
-      const selectedCount = countAllowedPermissions(permissions);
-      const created = await addAdmin({
-        full_name: fullName,
-        email: email,
-        password: password,
-        role: role,
-        permissions: permissions,
-      });
-
-      const roleTitle = role === 'sales' ? 'Sales Member' : 'Staff Member';
-      setSuccessMsg(
-        `${roleTitle} "${created.full_name}" created & synced to Supabase successfully! (${selectedCount} / ${TOTAL_SUB_ITEMS_COUNT} sub-pages allowed with CRUD permissions)`
-      );
-
-      setFullName('');
-      setEmail('');
-      setPassword('123456');
-      setPermissions(getNestedCrudPermissions(false));
+  const handleDelete = async (memberId: string) => {
+    if (window.confirm('Are you sure you want to remove this team member account?')) {
+      await deleteAdmin(memberId);
       refreshList();
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to create team member.');
+      setSuccessMsg('Team member account deleted successfully.');
+      setTimeout(() => setSuccessMsg(null), 3500);
     }
   };
 
@@ -318,305 +145,208 @@ export function TeamManagementPage() {
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to remove this team member account?')) {
-      await deleteAdmin(id);
-      refreshList();
-    }
-  };
-
-  const totalSelectedCount = countAllowedPermissions(permissions);
-  const isGlobalAllSelected = totalSelectedCount === TOTAL_SUB_ITEMS_COUNT;
+  const activeCount = teamList.filter((a) => a.has_data_access).length;
+  const deactiveCount = teamList.filter((a) => !a.has_data_access).length;
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        title={role === 'sales' ? 'Sales & Team Access Management' : 'Staff & Team Access Management'}
-        subtitle="Add sales representatives and staff members with granular CRUD permissions (View, Create, Edit, Delete) per module."
+        title="Super Admin Team Access Control"
+        subtitle="Manage active & deactive staff and sales team accounts, view allowed permissions, and edit CRUD access."
       >
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => navigate('/')}
-          className="flex items-center gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" /> Back to Dashboard
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => setIsStaffModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-xs font-semibold text-white shadow-md hover:bg-brand-500 transition-all cursor-pointer"
+          >
+            <UserCheck className="h-4 w-4" /> + Add New Staff
+          </button>
+
+          <button
+            onClick={() => setIsSalesModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-brand-600 px-4 py-2 text-xs font-semibold text-white shadow-md hover:bg-brand-500 transition-all cursor-pointer"
+          >
+            <Briefcase className="h-4 w-4" /> + Add New Sales
+          </button>
+
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 rounded-xl border border-ink-200 bg-white px-4 py-2 text-xs font-semibold text-ink-700 shadow-sm hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-300 dark:hover:bg-ink-800"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+          </button>
+        </div>
       </PageHeader>
 
-      {/* Main Container Card */}
-      <Card className="overflow-hidden p-0">
-        {/* Navigation Header */}
-        <div className="flex border-b border-ink-200 bg-ink-50/50 px-4 sm:px-6 dark:border-ink-800 dark:bg-ink-950/50">
-          <div className="flex items-center gap-2 border-b-2 border-brand-600 py-3 sm:py-4 px-2 sm:px-6 text-xs sm:text-sm font-semibold text-brand-600 dark:border-brand-400 dark:text-brand-400">
-            <Users className="h-4 w-4" />
-            Team Accounts & Permissions ({teamList.length})
+      {/* Summary KPI Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="flex items-center justify-between rounded-2xl border border-ink-200 bg-white p-5 shadow-sm dark:border-ink-800 dark:bg-ink-900">
+          <div>
+            <p className="text-xs font-semibold text-ink-500 dark:text-ink-400">Total Team Accounts</p>
+            <p className="mt-1.5 text-3xl font-black text-ink-900 dark:text-ink-50">{teamList.length}</p>
+          </div>
+          <Users className="h-9 w-9 text-brand-500/40" />
+        </div>
+
+        <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/30">
+          <div>
+            <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Active Members</p>
+            <p className="mt-1.5 text-3xl font-black text-emerald-800 dark:text-emerald-300">{activeCount}</p>
+          </div>
+          <div className="relative flex h-4 w-4">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
           </div>
         </div>
 
-        {/* Tab Content */}
-        <div className="p-4 sm:p-6">
+        <div className="flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50/60 p-5 shadow-sm dark:border-rose-900/40 dark:bg-rose-950/30">
+          <div>
+            <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Deactive Members</p>
+            <p className="mt-1.5 text-3xl font-black text-rose-800 dark:text-rose-300">{deactiveCount}</p>
+          </div>
+          <div className="h-4 w-4 rounded-full bg-rose-500 shadow-sm"></div>
+        </div>
+      </div>
+
+      {/* Main Container Card */}
+      <Card className="overflow-hidden p-0">
+        <div className="p-4 sm:p-6 space-y-4">
           {errorMsg && (
-            <div className="mb-6 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300">
+            <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/40 dark:text-rose-300 shadow-sm">
               <ShieldAlert className="h-5 w-5 shrink-0" />
               <span>{errorMsg}</span>
             </div>
           )}
 
           {successMsg && (
-            <div className="mb-6 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300">
-              <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs font-semibold text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300 shadow-sm animate-pulse">
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
               <span>{successMsg}</span>
             </div>
           )}
 
-          <div className="space-y-6">
-            {/* Summary KPI Cards for Active & Deactive Status */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="flex items-center justify-between rounded-2xl border border-ink-200 bg-white p-4 shadow-sm dark:border-ink-800 dark:bg-ink-900">
-                <div>
-                  <p className="text-xs font-semibold text-ink-500 dark:text-ink-400">Total Team Members</p>
-                  <p className="mt-1 text-2xl font-black text-ink-900 dark:text-ink-50">{teamList.length}</p>
-                </div>
-                <Users className="h-8 w-8 text-brand-500/40" />
-              </div>
+          {/* Accounts Table */}
+          <div className="w-full max-w-full overflow-x-auto scrollbar-thin touch-scrolling rounded-2xl border border-ink-200 dark:border-ink-800">
+            <table className="w-full text-left text-xs min-w-[650px]">
+              <thead className="bg-ink-50 text-ink-500 uppercase font-semibold border-b border-ink-200 dark:bg-ink-950 dark:border-ink-800 dark:text-ink-400">
+                <tr>
+                  <th className="px-5 py-3.5">MEMBER NAME & EMAIL</th>
+                  <th className="px-5 py-3.5">ROLE</th>
+                  <th className="px-5 py-3.5">ACCOUNT STATUS</th>
+                  <th className="px-5 py-3.5">MODULE PERMISSIONS ALLOWED</th>
+                  <th className="px-5 py-3.5 text-right">ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-100 dark:divide-ink-800">
+                {teamList.map((u) => {
+                  const allowedCount = countAllowedPermissions(u.permissions);
 
-              <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/30">
-                <div>
-                  <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Active Members</p>
-                  <p className="mt-1 text-2xl font-black text-emerald-800 dark:text-emerald-300">
-                    {teamList.filter((a) => a.has_data_access).length}
-                  </p>
-                </div>
-                <div className="relative flex h-4 w-4">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                </div>
-              </div>
+                  return (
+                    <tr key={u.id} className="hover:bg-ink-50/50 dark:hover:bg-ink-800/30">
+                      <td className="px-5 py-4">
+                        <div className="font-bold text-sm text-ink-900 dark:text-ink-100">
+                          {u.full_name}
+                        </div>
+                        <div className="text-xs text-ink-400">{u.email}</div>
+                      </td>
 
-              <div className="flex items-center justify-between rounded-2xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm dark:border-rose-900/40 dark:bg-rose-950/30">
-                <div>
-                  <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Deactive Members</p>
-                  <p className="mt-1 text-2xl font-black text-rose-800 dark:text-rose-300">
-                    {teamList.filter((a) => !a.has_data_access).length}
-                  </p>
-                </div>
-                <div className="h-4 w-4 rounded-full bg-rose-500 shadow-sm"></div>
-              </div>
-            </div>
-
-            {/* Mobile Card List View (Visible on small screens < 640px) */}
-            <div className="space-y-3 sm:hidden">
-              {teamList.map((u) => {
-                const allowedCount = countAllowedPermissions(u.permissions);
-
-                return (
-                  <div
-                    key={u.id}
-                    className="rounded-2xl border border-ink-200 bg-white p-4 shadow-sm space-y-3 dark:border-ink-800 dark:bg-ink-900"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="font-bold text-sm text-ink-900 dark:text-ink-50">{u.full_name}</p>
-                        <p className="text-xs text-ink-400 break-all">{u.email}</p>
-                      </div>
-                      <span
-                        className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          u.role === 'sales'
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold uppercase ${u.role === 'sales'
                             ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
                             : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                        }`}
-                      >
-                        {u.role === 'sales' ? 'Sales' : 'Staff'}
-                      </span>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-b border-ink-100 py-2.5 dark:border-ink-800">
-                      {/* Status Badge */}
-                      <div>
-                        <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Status</p>
-                        {u.has_data_access ? (
-                          <button
-                            onClick={() => handleToggleStatus(u.id)}
-                            className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                          >
-                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleToggleStatus(u.id)}
-                            className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300"
-                          >
-                            <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Permissions Badge */}
-                      <div>
-                        <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1">Permissions</p>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
-                          <FolderTree className="h-3 w-3" /> {allowedCount} Pages
+                          }`}>
+                          {u.role.toUpperCase()}
                         </span>
-                      </div>
-                    </div>
+                      </td>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={() => handleToggleStatus(u.id)}
-                        className={`flex-1 rounded-xl py-1.5 text-xs font-semibold transition-colors text-center ${
-                          u.has_data_access
-                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
-                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
-                        }`}
-                      >
-                        {u.has_data_access ? 'Deactivate' : 'Activate'}
-                      </button>
-
-                      <button
-                        onClick={() => handleOpenEditAccess(u)}
-                        className="flex-1 flex items-center justify-center gap-1 rounded-xl bg-brand-50 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
-                      >
-                        <Edit2 className="h-3.5 w-3.5" /> Edit Access
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(u.id)}
-                        className="rounded-xl p-2 text-ink-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50"
-                        title="Delete Member"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {teamList.length === 0 && (
-                <div className="py-8 text-center text-xs text-ink-400">
-                  No sales or staff members created yet.
-                </div>
-              )}
-            </div>
-
-            {/* Accounts Table (Hidden on small screens, touch scrollable on medium screens) */}
-            <div className="hidden sm:block w-full max-w-full overflow-x-auto scrollbar-thin touch-scrolling rounded-2xl border border-ink-200 dark:border-ink-800">
-              <table className="w-full text-left text-xs min-w-[650px]">
-                <thead className="bg-ink-50 text-ink-500 uppercase font-semibold border-b border-ink-200 dark:bg-ink-950 dark:border-ink-800 dark:text-ink-400">
-                  <tr>
-                    <th className="px-5 py-3.5">Member Name & Email</th>
-                    <th className="px-5 py-3.5">Role Type</th>
-                    <th className="px-5 py-3.5">Account Status</th>
-                    <th className="px-5 py-3.5">Module Permissions Allowed</th>
-                    <th className="px-5 py-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-ink-100 dark:divide-ink-800">
-                  {teamList.map((u) => {
-                    const allowedCount = countAllowedPermissions(u.permissions);
-
-                    return (
-                      <tr key={u.id} className="hover:bg-ink-50/50 dark:hover:bg-ink-800/30">
-                        <td className="px-5 py-4">
-                          <div className="font-bold text-sm text-ink-900 dark:text-ink-100">
-                            {u.full_name}
-                          </div>
-                          <div className="text-xs text-ink-400">{u.email}</div>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold uppercase ${
-                              u.role === 'sales'
-                                ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
-                                : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            }`}
-                          >
-                            {u.role === 'sales' ? 'Sales Member' : 'Staff Member'}
+                      <td className="px-5 py-4">
+                        {u.has_data_access ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span> ACTIVE
                           </span>
-                        </td>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300">
+                            <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
+                          </span>
+                        )}
+                      </td>
 
-                        {/* Account Status Badge */}
-                        <td className="px-5 py-4">
-                          {u.has_data_access ? (
-                            <button
-                              onClick={() => handleToggleStatus(u.id)}
-                              className="group inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900/60 transition-all cursor-pointer"
-                              title="Click to Deactivate Member"
-                            >
-                              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span> ACTIVE
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleToggleStatus(u.id)}
-                              className="group inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1 text-xs font-bold text-rose-800 hover:bg-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900/60 transition-all cursor-pointer"
-                              title="Click to Activate Member"
-                            >
-                              <span className="h-2 w-2 rounded-full bg-rose-500"></span> DEACTIVE
-                            </button>
-                          )}
-                        </td>
+                      <td className="px-5 py-4">
+                        {allowedCount === TOTAL_SUB_ITEMS_COUNT ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                            <Lock className="h-3.5 w-3.5" /> Full Access ({TOTAL_SUB_ITEMS_COUNT}/{TOTAL_SUB_ITEMS_COUNT})
+                          </span>
+                        ) : allowedCount > 0 ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
+                            <FolderTree className="h-3.5 w-3.5" /> {allowedCount} Pages Allowed
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                            <Lock className="h-3.5 w-3.5" /> No Access (0 Pages Allowed)
+                          </span>
+                        )}
+                      </td>
 
-                        <td className="px-5 py-4">
-                          {allowedCount > 0 ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold text-brand-800 dark:bg-brand-950/60 dark:text-brand-300">
-                              <FolderTree className="h-3.5 w-3.5" /> {allowedCount} Pages Allowed
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-                              <Lock className="h-3.5 w-3.5" /> No Access (0 Pages Allowed)
-                            </span>
-                          )}
-                        </td>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            onClick={() => handleToggleStatus(u.id)}
+                            className="text-xs font-bold text-rose-600 hover:text-rose-800 dark:text-rose-400 dark:hover:text-rose-300 cursor-pointer"
+                          >
+                            {u.has_data_access ? 'Deactivate' : 'Activate'}
+                          </button>
 
-                        <td className="px-5 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleToggleStatus(u.id)}
-                              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                                u.has_data_access
-                                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300'
-                                  : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300'
-                              }`}
-                            >
-                              {u.has_data_access ? 'Deactivate' : 'Activate'}
-                            </button>
+                          <button
+                            onClick={() => handleOpenEditAccess(u)}
+                            className="flex items-center gap-1.5 text-xs font-bold text-brand-600 hover:text-brand-800 dark:text-brand-400 dark:hover:text-brand-300 cursor-pointer"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" /> Edit Access
+                          </button>
 
-                            <button
-                              onClick={() => handleOpenEditAccess(u)}
-                              className="flex items-center gap-1.5 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" /> Edit Access
-                            </button>
-
-                            <button
-                              onClick={() => handleDelete(u.id)}
-                              className="rounded-xl p-1.5 text-ink-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/50"
-                              title="Delete Member"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {teamList.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-12 text-center text-xs text-ink-400">
-                        No sales or staff members created yet.
+                          <button
+                            onClick={() => handleDelete(u.id)}
+                            className="p-1 text-ink-400 hover:text-rose-600 dark:hover:text-rose-400 cursor-pointer"
+                            title="Delete Member"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+
+                {teamList.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-xs text-ink-400 font-medium">
+                      No staff or sales members created yet. Click "+ Add New Staff" or "+ Add New Sales" above to add team members.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </Card>
+
+      {/* Add Staff Modal */}
+      <AddStaffModal
+        isOpen={isStaffModalOpen}
+        onClose={() => setIsStaffModalOpen(false)}
+        onSuccess={() => {
+          refreshList();
+        }}
+      />
+
+      {/* Add Sales Modal */}
+      <AddSalesModal
+        isOpen={isSalesModalOpen}
+        onClose={() => setIsSalesModalOpen(false)}
+        onSuccess={() => {
+          refreshList();
+        }}
+      />
 
       {/* Edit Granular Access Modal */}
       <AnimatePresence>
@@ -644,12 +374,36 @@ export function TeamManagementPage() {
                     ({editingUser.email}) — Adjust allowed module pages and CRUD action capabilities
                   </p>
                 </div>
-                <button
-                  onClick={() => setEditingUser(null)}
-                  className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800"
-                >
-                  <X className="h-5 w-5" />
-                </button>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const totalAllowed = countAllowedPermissions(editingPermissions);
+                      const isAll = totalAllowed === TOTAL_SUB_ITEMS_COUNT;
+                      const next = getNestedCrudPermissions(!isAll);
+                      setEditingPermissions(next);
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 transition-colors hover:bg-brand-100 dark:border-brand-800 dark:bg-brand-500/10 dark:text-brand-300 cursor-pointer"
+                  >
+                    {countAllowedPermissions(editingPermissions) === TOTAL_SUB_ITEMS_COUNT ? (
+                      <CheckSquare className="h-4 w-4 text-brand-600" />
+                    ) : (
+                      <Square className="h-4 w-4 text-ink-400" />
+                    )}
+                    <span>
+                      {countAllowedPermissions(editingPermissions) === TOTAL_SUB_ITEMS_COUNT
+                        ? 'Deselect All'
+                        : 'Select All (Full Access)'}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setEditingUser(null)}
+                    className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800 cursor-pointer"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
 
               <div className="max-h-[60vh] overflow-y-auto py-4 scrollbar-thin space-y-4">
@@ -658,28 +412,77 @@ export function TeamManagementPage() {
                   const isExpanded = Boolean(editingExpanded[catName]);
                   const catObject = editingPermissions[catName] || {};
 
+                  const selectedInCatCount = moduleCat.items.filter((item) =>
+                    Boolean(catObject[item.key]?.access)
+                  ).length;
+                  const isCatAllSelected = selectedInCatCount === moduleCat.items.length && moduleCat.items.length > 0;
+
+                  const handleCategorySelectAll = (categoryName: string, checked: boolean) => {
+                    setEditingPermissions((prev) => {
+                      const updatedCat = { ...(prev[categoryName] || {}) };
+                      const catDef = MODULE_CATEGORIES.find((c) => c.category === categoryName);
+                      if (catDef) {
+                        catDef.items.forEach((item) => {
+                          updatedCat[item.key] = {
+                            access: checked,
+                            can_create: checked,
+                            can_edit: checked,
+                            can_delete: checked,
+                          };
+                        });
+                      }
+                      return {
+                        ...prev,
+                        [categoryName]: updatedCat,
+                      };
+                    });
+                  };
+
                   return (
                     <div
                       key={catName}
                       className="overflow-hidden rounded-xl border border-ink-200 bg-white transition-shadow dark:border-ink-800 dark:bg-ink-950"
                     >
                       <div className="flex items-center justify-between bg-ink-50/70 px-4 py-3 dark:bg-ink-900/70">
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isCatAllSelected}
+                            onChange={(e) => handleCategorySelectAll(catName, e.target.checked)}
+                            className="h-4 w-4 accent-brand-600 rounded cursor-pointer"
+                            title={`Select/Deselect all sub-pages in ${catName} Module`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingExpanded((prev) => ({
+                                ...prev,
+                                [catName]: !prev[catName],
+                              }))
+                            }
+                            className="flex items-center gap-2 text-left text-xs font-bold text-ink-900 dark:text-ink-100 cursor-pointer"
+                          >
+                            <ChevronDown
+                              className={`h-4 w-4 text-ink-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                            />
+                            <span>{catName} Module</span>
+                            <span className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-semibold text-ink-600 shadow-sm dark:bg-ink-800 dark:text-ink-300">
+                              {selectedInCatCount} / {moduleCat.items.length} Allowed
+                            </span>
+                          </button>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() =>
-                            setEditingExpanded((prev) => ({
-                              ...prev,
-                              [catName]: !prev[catName],
-                            }))
-                          }
-                          className="flex items-center gap-2.5 text-left text-xs font-bold text-ink-900 dark:text-ink-100"
+                          onClick={() => handleCategorySelectAll(catName, !isCatAllSelected)}
+                          className="flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-ink-700 shadow-sm hover:bg-ink-100 dark:bg-ink-800 dark:text-ink-200 dark:hover:bg-ink-700 cursor-pointer"
                         >
-                          <ChevronDown
-                            className={`h-4 w-4 text-ink-400 transition-transform ${
-                              isExpanded ? 'rotate-180' : ''
-                            }`}
-                          />
-                          <span>{catName} Module</span>
+                          {isCatAllSelected ? (
+                            <CheckSquare className="h-3.5 w-3.5 text-brand-600" />
+                          ) : (
+                            <Square className="h-3.5 w-3.5 text-ink-400" />
+                          )}
+                          <span>{isCatAllSelected ? 'Deselect Module' : `Select All ${catName}`}</span>
                         </button>
                       </div>
 
@@ -740,31 +543,28 @@ export function TeamManagementPage() {
                                 <div className="flex items-center gap-2">
                                   <label
                                     onClick={() => handleEditActionToggle('can_create')}
-                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${
-                                      flags.can_create
+                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_create
                                         ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300'
                                         : 'border-ink-200 text-ink-400 dark:border-ink-800'
-                                    }`}
+                                      }`}
                                   >
                                     Create
                                   </label>
                                   <label
                                     onClick={() => handleEditActionToggle('can_edit')}
-                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${
-                                      flags.can_edit
+                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_edit
                                         ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
                                         : 'border-ink-200 text-ink-400 dark:border-ink-800'
-                                    }`}
+                                      }`}
                                   >
                                     Edit
                                   </label>
                                   <label
                                     onClick={() => handleEditActionToggle('can_delete')}
-                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${
-                                      flags.can_delete
+                                    className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_delete
                                         ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
                                         : 'border-ink-200 text-ink-400 dark:border-ink-800'
-                                    }`}
+                                      }`}
                                   >
                                     Delete
                                   </label>

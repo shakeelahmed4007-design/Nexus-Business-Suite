@@ -127,6 +127,11 @@ export function QuickAddTeamModal({ isOpen, onClose, role }: QuickAddTeamModalPr
     setIsSubmitting(true);
 
     try {
+      const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+      const currentRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
+      const isSuperAdmin = currentRole === 'super_admin' || (currentUserEmail !== '' && (currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || currentUserEmail.includes('superadmin')));
+      const createdByRole = isSuperAdmin ? 'SUPER_ADMIN' : 'ADMIN';
+
       const defaultPerms = generatePresetPermissions();
       await addAdmin({
         full_name: fullName.trim(),
@@ -134,6 +139,9 @@ export function QuickAddTeamModal({ isOpen, onClose, role }: QuickAddTeamModalPr
         password: password,
         role: role,
         permissions: defaultPerms,
+        created_by_role: createdByRole,
+        created_by_email: currentUserEmail,
+        created_by_id: user?.id,
       });
 
       setSuccess(
