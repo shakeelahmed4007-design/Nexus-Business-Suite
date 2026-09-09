@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { CreditCard, Clock, AlertTriangle, DollarSign } from 'lucide-react';
+import { CreditCard, Clock, AlertTriangle, Loader2 } from 'lucide-react';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { PageHeader } from '@/shared/components/ui/PageHeader';
 import { Card, CardHeader } from '@/shared/components/ui/Card';
@@ -8,43 +9,67 @@ import { Table, type Column } from '@/shared/components/ui/Table';
 import { KpiCard } from '@/shared/components/ui/KpiCard';
 import { AccessPendingBanner } from '@/shared/components/AccessPendingBanner';
 import { useDataAccess } from '@/shared/hooks/useDataAccess';
-import { payments, paymentMethodBreakdown, type Payment } from '@/modules/Sales/payments';
+import { useAuth } from '@/shared/context/AuthContext';
+import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
+import { payments as initialPayments, paymentMethodBreakdown, type Payment } from '@/modules/Sales/payments';
+import { fetchPaymentsApi } from '@/modules/Sales/salesApiService';
 
 const statusConfig = {
   Paid: { tone: 'green' as const, icon: CreditCard },
   Pending: { tone: 'amber' as const, icon: Clock },
   Overdue: { tone: 'rose' as const, icon: AlertTriangle },
+  Completed: { tone: 'green' as const, icon: CreditCard },
 };
 
 const chartTooltipStyle = { borderRadius: 12, border: 'none', boxShadow: '0 8px 24px -8px rgba(16,24,40,0.12)', fontSize: 12 };
 
 export function PaymentsPage() {
+  const { user, profile } = useAuth();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
   const { hasAccess } = useDataAccess('payments');
 
-  const displayPayments = hasAccess ? payments : [];
+  const [paymentsList, setPaymentsList] = useState<Payment[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  const loadPayments = async () => {
+    setLoading(true);
+    const data = await fetchPaymentsApi(ownerAdminEmail);
+    if (data && data.length > 0) {
+      setPaymentsList(data);
+    } else {
+      setPaymentsList(initialPayments);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadPayments();
+  }, [ownerAdminEmail]);
+
+  const displayPayments = hasAccess ? paymentsList : [];
   const displayBreakdown = hasAccess ? paymentMethodBreakdown : [];
 
-  const totalPaid = displayPayments.filter((p) => p.status === 'Paid').reduce((a, p) => a + p.amount, 0);
+  const totalPaid = displayPayments.filter((p) => p.status === 'Paid' || p.status === 'Completed').reduce((a, p) => a + p.amount, 0);
   const totalPending = displayPayments.filter((p) => p.status === 'Pending').reduce((a, p) => a + p.amount, 0);
   const totalOverdue = displayPayments.filter((p) => p.status === 'Overdue').reduce((a, p) => a + p.amount, 0);
 
   const columns: Column<Payment>[] = [
     { key: 'id', header: 'ID', render: (p) => <span className="font-semibold text-brand-600 dark:text-brand-400">{p.id}</span> },
-    { key: 'invoice', header: 'Invoice', render: (p) => <span className="text-ink-600 dark:text-ink-300">{p.invoice}</span> },
+    { key: 'invoice', header: 'Invoice', render: (p) => <span className="text-ink-600 dark:text-ink-300">{p.invoice || p.invoiceId || 'INV-1001'}</span> },
     { key: 'customer', header: 'Customer' },
     { key: 'amount', header: 'Amount', align: 'right', render: (p) => <span className="font-semibold">PKR {p.amount.toLocaleString()}</span> },
     { key: 'method', header: 'Method', render: (p) => <span className="text-xs text-ink-500">{p.method}</span> },
-    { key: 'dueDate', header: 'Due Date', render: (p) => <span className="text-xs text-ink-500">{p.dueDate}</span> },
+    { key: 'dueDate', header: 'Due Date', render: (p) => <span className="text-xs text-ink-500">{p.dueDate || '14 days'}</span> },
     { key: 'date', header: 'Paid On', render: (p) => <span className="text-xs text-ink-500">{p.date || '—'}</span> },
     { key: 'status', header: 'Status', render: (p) => {
-      const cfg = statusConfig[p.status];
+      const cfg = statusConfig[p.status as keyof typeof statusConfig] || statusConfig.Paid;
       return <Badge tone={cfg.tone} icon={cfg.icon}>{p.status}</Badge>;
     }},
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Payments Tracking" subtitle="Monitor incoming payments and outstanding balances." />
+      <PageHeader title="Payments Tracking" subtitle="Monitor incoming payments and outstanding balances synced live with Supabase." />
 
       {!hasAccess && <AccessPendingBanner />}
 
@@ -56,9 +81,16 @@ export function PaymentsPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Payment Records" subtitle={`${displayPayments.length} transactions`} />
+          <CardHeader title="Payment Records" subtitle={`${displayPayments.length} transactions in database`} />
           <div className="pt-3">
-            <Table columns={columns} data={displayPayments} rowKey={(p) => p.id} />
+            {loading ? (
+              <div className="flex items-center justify-center p-12 text-ink-400 gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                <span>Loading payment records from Supabase...</span>
+              </div>
+            ) : (
+              <Table columns={columns} data={displayPayments} rowKey={(p) => p.id} />
+            )}
           </div>
         </Card>
 

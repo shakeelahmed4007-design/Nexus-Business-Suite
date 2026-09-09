@@ -17,7 +17,7 @@ import {
   Shield,
   RefreshCw,
 } from 'lucide-react';
-import { addAdmin, NestedCrudPermissions, getNestedCrudPermissions } from '@/shared/lib/adminStore';
+import { addAdmin, NestedCrudPermissions, getRolePresetPermissions } from '@/shared/lib/adminStore';
 import { validateMemberViaApi, MemberValidationResult } from '@/shared/lib/memberValidationService';
 import { useAuth } from '@/shared/context/AuthContext';
 
@@ -140,12 +140,7 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
       }
     }
 
-    if (email && !email.includes('@mtnexusglobal.com')) {
-      const namePart = `${firstName}.${lastName}`.toLowerCase().replace(/[^a-z0-9]/g, '.') || 'staff';
-      setEmail(`${namePart}@mtnexusglobal.com`);
-    }
-
-    setSuccessMsg('Applied AI suggestions for Department, Email Domain & Password!');
+    setSuccessMsg('Applied AI suggestions for Department & Password!');
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
@@ -168,42 +163,43 @@ export function AddStaffModal({ isOpen, onClose, onSuccess }: AddStaffModalProps
     setIsSubmitting(true);
 
     try {
-      // 1. Try sending to Express Backend Endpoint /api/staff/create-staff
-      const res = await fetch('/api/staff/create-staff', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName,
-          email,
-          phone,
-          role,
-          department,
-          shopAssignments,
-          status,
-          password,
-          created_by_role: createdByRole,
-          created_by_email: currentUserEmail,
-          created_by_id: user?.id,
-        }),
+      const defaultStaffPerms: NestedCrudPermissions = getRolePresetPermissions(role.toLowerCase());
+      await addAdmin({
+        full_name: fullName,
+        email,
+        phone,
+        department,
+        status,
+        shop_id: shopAssignments.join(','),
+        password,
+        role: role.toLowerCase(),
+        permissions: defaultStaffPerms,
+        created_by_role: createdByRole,
+        created_by_email: currentUserEmail,
+        created_by_id: user?.id,
       });
 
-      if (!res.ok) {
-        // Fallback to local adminStore addAdmin
-        const defaultStaffPerms: NestedCrudPermissions = getNestedCrudPermissions(false);
-        await addAdmin({
-          full_name: fullName,
-          email,
-          phone,
-          department,
-          status,
-          shop_id: shopAssignments.join(','),
-          password,
-          role: role.toLowerCase(),
-          permissions: defaultStaffPerms,
-          created_by_role: createdByRole,
-          created_by_email: currentUserEmail,
-          created_by_id: user?.id,
+      // Best effort backend notification
+      try {
+        await fetch('/api/staff/create-staff', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName,
+            email,
+            phone,
+            role,
+            department,
+            shopAssignments,
+            status,
+            password,
+            created_by_role: createdByRole,
+            created_by_email: currentUserEmail,
+            created_by_id: user?.id,
+          }),
         });
+      } catch (backendErr) {
+        console.warn('Backend API notification notice:', backendErr);
       }
 
       setSuccessMsg(`Staff Member "${fullName}" created successfully!`);

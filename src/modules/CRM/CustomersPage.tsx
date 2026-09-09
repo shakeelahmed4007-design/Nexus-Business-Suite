@@ -85,7 +85,7 @@ export function CustomersPage() {
                     </div>
                     <div>
                       <p className="font-semibold text-ink-900 dark:text-ink-50">{c.firstName} {c.lastName}</p>
-                      <p className="text-xs text-ink-500 dark:text-ink-400">{c.companyName || '—'}</p>
+                      <p className="text-xs text-ink-500 dark:text-ink-400">{c.companyName || 'ï¿½'}</p>
                     </div>
                   </div>
                 </div>
@@ -103,7 +103,7 @@ export function CustomersPage() {
                   </div>
                   <div>
                     <p className="text-xs text-ink-400">City</p>
-                    <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{c.city || '—'}</p>
+                    <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{c.city || 'ï¿½'}</p>
                   </div>
                 </div>
               </Card>
@@ -162,7 +162,7 @@ function CustomerDrawer({ customer, onClose }: { customer: ApiCustomer | null; o
                 </div>
                 <div>
                   <p className="text-lg font-bold text-ink-900 dark:text-ink-50">{customer.firstName} {customer.lastName}</p>
-                  <p className="text-sm text-ink-500 dark:text-ink-400">{customer.companyName || '—'}</p>
+                  <p className="text-sm text-ink-500 dark:text-ink-400">{customer.companyName || 'ï¿½'}</p>
                 </div>
               </div>
 

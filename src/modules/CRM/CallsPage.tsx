@@ -49,14 +49,14 @@ export function CallsPage() {
     {
       key: 'notes',
       header: 'Notes',
-      render: (c) => <span className="text-xs text-ink-500">{c.notes || '—'}</span>,
+      render: (c) => <span className="text-xs text-ink-500">{c.notes || 'ï¿½'}</span>,
     },
     {
       key: 'expires',
       header: 'Expires',
       render: (c) => (
         <span className="text-xs text-ink-400">
-          {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : '—'}
+          {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : 'ï¿½'}
         </span>
       ),
     },

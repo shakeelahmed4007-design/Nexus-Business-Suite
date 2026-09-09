@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Briefcase,
   UserCheck,
+  PackagePlus,
 } from 'lucide-react';
 import {
   Area,
@@ -84,6 +85,7 @@ const chartTooltipStyle = {
 import { QuickAddTeamModal } from '@/modules/Admin/QuickAddTeamModal';
 import { AddStaffModal } from '@/modules/Admin/AddStaffModal';
 import { AddSalesModal } from '@/modules/Admin/AddSalesModal';
+import { AddProductModal } from '@/modules/Admin/AddProductModal';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -91,6 +93,7 @@ export function DashboardPage() {
   const [quickAddRole, setQuickAddRole] = useState<'sales' | 'staff' | null>(null);
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
 
 
   // Compute displayed KPIs depending on data access permissions
@@ -137,7 +140,7 @@ export function DashboardPage() {
     <div className="space-y-6">
       <PageHeader title="Dashboard" subtitle="Welcome back — here's what's happening today.">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Super Admin Options - 3 Primary Action Buttons in a Row (12px gap) */}
+          {/* Super Admin Options - Primary Action Buttons in a Row */}
           {isSuperAdmin ? (
             <>
               {/* Button 1: Add New Admin */}
@@ -168,6 +171,16 @@ export function DashboardPage() {
               >
                 <Briefcase className="h-4 w-4" />
                 <span>Add New Sales</span>
+              </button>
+
+              {/* Button 4: Add Product */}
+              <button
+                onClick={() => setIsProductModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-brand-500/20 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                title="Add new product catalog entry with image upload"
+              >
+                <PackagePlus className="h-4 w-4" />
+                <span>Add Product</span>
               </button>
 
               <button
@@ -448,6 +461,12 @@ export function DashboardPage() {
         onSuccess={() => {
           navigate('/team-management');
         }}
+      />
+
+      {/* Super Admin Dedicated Add Product Modal */}
+      <AddProductModal
+        isOpen={isProductModalOpen}
+        onClose={() => setIsProductModalOpen(false)}
       />
     </div>
   );

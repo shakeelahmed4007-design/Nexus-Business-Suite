@@ -9,12 +9,16 @@ import { Modal } from '@/shared/components/ui/Modal';
 import { Table, type Column } from '@/shared/components/ui/Table';
 import { AccessPendingBanner } from '@/shared/components/AccessPendingBanner';
 import { useDataAccess } from '@/shared/hooks/useDataAccess';
+import { useAuth } from '@/shared/context/AuthContext';
+import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
 import { type Invoice } from '@/modules/Sales/invoices';
 import { fetchInvoices, createInvoice } from '@/modules/Sales/invoiceService';
 
 const statusTones = { Paid: 'green' as const, Sent: 'brand' as const, Overdue: 'rose' as const, Draft: 'gray' as const };
 
 export function InvoicesPage() {
+  const { user, profile } = useAuth();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
   const { hasAccess, canCreate } = useDataAccess('invoices');
   const [invoicesList, setInvoicesList] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -23,14 +27,14 @@ export function InvoicesPage() {
 
   const loadData = async () => {
     setLoading(true);
-    const data = await fetchInvoices();
+    const data = await fetchInvoices(ownerAdminEmail);
     setInvoicesList(data);
     setLoading(false);
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [ownerAdminEmail]);
 
   const displayInvoices = hasAccess ? invoicesList : [];
 
@@ -198,6 +202,8 @@ function InvoicePreview({ invoice, onClose }: { invoice: Invoice | null; onClose
 const inputCls = 'h-10 w-full rounded-xl border border-ink-200 bg-ink-50 px-3 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-ink-100';
 
 function CreateInvoiceModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+  const { user, profile } = useAuth();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
   const [customer, setCustomer] = useState('');
   const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
   const [dueDate, setDueDate] = useState('');
@@ -242,13 +248,17 @@ function CreateInvoiceModal({ open, onClose, onCreated }: { open: boolean; onClo
     }
 
     setSubmitting(true);
-    const res = await createInvoice({
-      customer,
-      date: issueDate,
-      dueDate: dueDate,
-      taxRate: Number(taxRate),
-      items: validItems,
-    });
+    const res = await createInvoice(
+      {
+        customer,
+        date: issueDate,
+        dueDate: dueDate,
+        taxRate: Number(taxRate),
+        items: validItems,
+      },
+      ownerAdminEmail,
+      user?.email
+    );
 
     setSubmitting(false);
 

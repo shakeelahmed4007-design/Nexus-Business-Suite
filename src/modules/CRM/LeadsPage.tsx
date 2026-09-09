@@ -142,10 +142,10 @@ function KanbanView({ leads, canEdit, canDelete, onDelete, onStatusChange }: {
                       </div>
                     </div>
                     <p className="mt-3 text-sm font-semibold text-ink-900 dark:text-ink-50">{lead.firstName} {lead.lastName}</p>
-                    <p className="text-xs text-ink-500 dark:text-ink-400">{lead.companyName || '—'}</p>
+                    <p className="text-xs text-ink-500 dark:text-ink-400">{lead.companyName || 'ï¿½'}</p>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-sm font-bold text-brand-600 dark:text-brand-400">PKR {((lead.leadValue || 0) / 1000).toFixed(0)}K</span>
-                      <span className="text-xs text-ink-400">{lead.leadSource || '—'}</span>
+                      <span className="text-xs text-ink-400">{lead.leadSource || 'ï¿½'}</span>
                     </div>
                   </motion.div>
                 ))
@@ -179,7 +179,7 @@ function TableView({ leads, canEdit, canDelete, onDelete }: {
           </div>
           <div>
             <p className="font-medium text-ink-900 dark:text-ink-50">{l.firstName} {l.lastName}</p>
-            <p className="text-xs text-ink-400">{l.companyName || '—'}</p>
+            <p className="text-xs text-ink-400">{l.companyName || 'ï¿½'}</p>
           </div>
         </div>
       ),
@@ -196,8 +196,8 @@ function TableView({ leads, canEdit, canDelete, onDelete }: {
     },
     { key: 'leadValue', header: 'Value', align: 'right', render: (l) => <span className="font-semibold text-ink-900 dark:text-ink-50">PKR {(l.leadValue || 0).toLocaleString()}</span> },
     { key: 'leadStatus', header: 'Stage', render: (l) => <Badge tone={stageTones[l.leadStatus || 'New']}>{l.leadStatus || 'New'}</Badge> },
-    { key: 'leadSource', header: 'Source', render: (l) => <span className="text-xs">{l.leadSource || '—'}</span> },
-    { key: 'priority', header: 'Priority', render: (l) => <span className="text-xs text-ink-500">{l.priority || '—'}</span> },
+    { key: 'leadSource', header: 'Source', render: (l) => <span className="text-xs">{l.leadSource || 'ï¿½'}</span> },
+    { key: 'priority', header: 'Priority', render: (l) => <span className="text-xs text-ink-500">{l.priority || 'ï¿½'}</span> },
     {
       key: 'actions',
       header: 'Actions',

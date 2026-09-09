@@ -66,11 +66,6 @@ export function TeamManagementPage() {
     Intelligence: true,
   });
 
-  const visibleCategories = MODULE_CATEGORIES.map((cat) => ({
-    ...cat,
-    items: cat.items.filter((item) => isPermissionAllowedByAdmin(adminPerms, cat.category, item.key)),
-  })).filter((cat) => cat.items.length > 0);
-
   useEffect(() => {
     refreshList();
   }, []);
@@ -90,19 +85,19 @@ export function TeamManagementPage() {
     const itemCreatorId = u.created_by_id;
 
     if (isSuperAdmin) {
-      // 1. Super Admin level: ONLY show staff/sales created by Super Admin
-      if (itemCreatorRole === 'ADMIN') return false; // Hide items created by regular Admins
-      return itemCreatorRole === 'SUPER_ADMIN' || itemCreatorEmail === currentUserEmail || !itemCreatorRole;
+      // 1. Super Admin level: Hide staff/sales created by regular Admins
+      if (itemCreatorRole === 'ADMIN') return false;
+      return true;
     } else {
-      // 2. Admin level: ONLY show staff/sales created by THIS SPECIFIC ADMIN
-      if (itemCreatorRole === 'SUPER_ADMIN') return false; // Hide items created by Super Admin
+      // 2. Admin level: Hide staff/sales created by Super Admin
+      if (itemCreatorRole === 'SUPER_ADMIN') return false;
       if (itemCreatorEmail) {
         return itemCreatorEmail === currentUserEmail;
       }
-      if (itemCreatorId) {
+      if (itemCreatorId && (user?.id || profile?.id)) {
         return itemCreatorId === (user?.id || profile?.id);
       }
-      return itemCreatorRole === 'ADMIN';
+      return true;
     }
   };
 
@@ -407,7 +402,7 @@ export function TeamManagementPage() {
               </div>
 
               <div className="max-h-[60vh] overflow-y-auto py-4 scrollbar-thin space-y-4">
-                {visibleCategories.map((moduleCat) => {
+                {MODULE_CATEGORIES.map((moduleCat) => {
                   const catName = moduleCat.category;
                   const isExpanded = Boolean(editingExpanded[catName]);
                   const catObject = editingPermissions[catName] || {};

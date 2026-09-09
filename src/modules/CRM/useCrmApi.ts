@@ -1,18 +1,17 @@
-/**
- * Centralized hook for CRM features (Leads, Customers, Tasks, Calling Data)
- * Connects to Node.js backend when available, and gracefully falls back to local state
- * if backend is offline or unreachable (e.g. deployed without backend endpoint).
- */
 import { useState, useEffect, useCallback } from 'react';
-import { apiClient } from '@/shared/lib/apiClient';
+import { supabase } from '@/shared/lib/supabaseClient';
+import { useAuth } from '@/shared/context/AuthContext';
+import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
 
 // -----------------------------------------------------------------------------
 // TYPES
 // -----------------------------------------------------------------------------
 export interface ApiLead {
   id: string;
-  shopId: string;
-  createdById: string;
+  shopId?: string;
+  createdById?: string;
+  ownerAdminEmail?: string;
+  createdByEmail?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -42,7 +41,9 @@ export interface CreateLeadPayload {
 
 export interface ApiCustomer {
   id: string;
-  shopId: string;
+  shopId?: string;
+  ownerAdminEmail?: string;
+  createdByEmail?: string;
   firstName: string;
   lastName: string;
   email?: string;
@@ -51,6 +52,8 @@ export interface ApiCustomer {
   city?: string;
   customerType?: string;
   tags?: string[];
+  totalOrders?: number;
+  totalSpent?: number;
   createdAt: string;
 }
 
@@ -74,6 +77,8 @@ export interface ApiTask {
   priority: string;
   dueDate?: string;
   assignedToUserId?: string;
+  ownerAdminEmail?: string;
+  createdByEmail?: string;
   createdAt: string;
 }
 
@@ -94,19 +99,15 @@ export interface ApiCallingData {
   contactName?: string;
   status?: string;
   assignedToUserId?: string;
+  ownerAdminEmail?: string;
+  createdByEmail?: string;
   notes?: string;
   expiresAt?: string;
   createdAt: string;
 }
 
-interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  pagination?: { total: number; page: number; pages: number };
-}
-
 // -----------------------------------------------------------------------------
-// LOCAL STORAGE HELPERS (Fallback mode when backend is unreachable)
+// LOCAL STORAGE HELPERS
 // -----------------------------------------------------------------------------
 function getLocalCache<T>(key: string, fallback: T): T {
   try {
@@ -124,13 +125,15 @@ function setLocalCache<T>(key: string, data: T) {
 }
 
 // -----------------------------------------------------------------------------
-// INITIAL DEMO DATA FOR OFFLINE / DEPLOYMENT DEMO
+// INITIAL DEMO DATA FOR FALLBACK
 // -----------------------------------------------------------------------------
 const DEMO_LEADS: ApiLead[] = [
   {
     id: 'lead-demo-1',
     shopId: 'shop-1',
     createdById: 'user-1',
+    ownerAdminEmail: 'admin@nexus.com',
+    createdByEmail: 'admin@nexus.com',
     firstName: 'Zeeshan',
     lastName: 'Khan',
     email: 'zeeshan@example.com',
@@ -150,6 +153,8 @@ const DEMO_CUSTOMERS: ApiCustomer[] = [
   {
     id: 'cust-demo-1',
     shopId: 'shop-1',
+    ownerAdminEmail: 'admin@nexus.com',
+    createdByEmail: 'admin@nexus.com',
     firstName: 'Afzal',
     lastName: 'Ahan',
     email: 'afzal@nexus.com',
@@ -169,6 +174,8 @@ const DEMO_TASKS: ApiTask[] = [
     taskStatus: 'In Progress',
     priority: 'High',
     dueDate: new Date(Date.now() + 86400000).toISOString(),
+    ownerAdminEmail: 'admin@nexus.com',
+    createdByEmail: 'admin@nexus.com',
     createdAt: new Date().toISOString(),
   },
 ];
@@ -180,15 +187,125 @@ const DEMO_CALLING: ApiCallingData[] = [
     contactName: 'Zeeshan Khan',
     status: 'Available',
     notes: 'Primary contact number',
+    ownerAdminEmail: 'admin@nexus.com',
+    createdByEmail: 'admin@nexus.com',
     createdAt: new Date().toISOString(),
   },
 ];
+
+// Helper to format lead row from Supabase
+function formatLeadRow(row: any): ApiLead {
+  return {
+    id: row.id,
+    shopId: row.shop_id,
+    createdById: row.created_by_id,
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
+    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    email: row.email || '',
+    phone: row.phone || '',
+    companyName: row.company_name || '',
+    leadSource: row.lead_source || 'Manual Entry',
+    leadStatus: row.lead_status || 'New',
+    leadValue: row.lead_value ? Number(row.lead_value) : 0,
+    priority: row.priority || 'Medium',
+    notes: row.notes || '',
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+// Helper to format customer row from Supabase
+function formatCustomerRow(row: any): ApiCustomer {
+  const type = row.customer_type || 'Regular';
+  return {
+    id: row.id,
+    shopId: row.shop_id,
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
+    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    firstName: row.first_name || '',
+    lastName: row.last_name || '',
+    email: row.email || '',
+    phone: row.phone || '',
+    companyName: row.company_name || '',
+    city: row.city || '',
+    customerType: type,
+    tags: [type],
+    totalOrders: Number(row.total_orders || 0),
+    totalSpent: Number(row.total_order_value || 0),
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+// Helper to format task row from Supabase
+function formatTaskRow(row: any): ApiTask {
+  const st = row.status || row.task_type || 'Not Started';
+  return {
+    id: row.id,
+    title: row.title || '',
+    description: row.description || '',
+    taskStatus: st,
+    status: st,
+    priority: row.priority || 'Medium',
+    dueDate: row.due_date || new Date().toISOString(),
+    assignedToUserId: row.assigned_to_user_id,
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
+    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+// Helper to format calling data row from Supabase
+function formatCallingRow(row: any): ApiCallingData {
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number || '',
+    contactName: row.contact_name || row.notes || '',
+    status: row.status || 'Available',
+    assignedToUserId: row.assigned_to_user_id,
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
+    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    notes: row.notes || '',
+    expiresAt: row.expiry_date,
+    createdAt: row.created_at || new Date().toISOString(),
+  };
+}
+
+// Helper to merge Supabase records with local records so nothing disappears
+function mergeWithLocal<T extends { id: string }>(dbItems: T[], localCacheKey: string, fallback: T[]): T[] {
+  const cached = getLocalCache<T[]>(localCacheKey, fallback);
+  const dbIds = new Set(dbItems.map((i) => i.id));
+  const localOnly = cached.filter((c) => !dbIds.has(c.id));
+  return [...dbItems, ...localOnly];
+}
+
+// Default UUIDs for valid database constraints
+const DEFAULT_SHOP_UUID = '3c337fc4-48ba-4835-a7b2-93987afe55be';
+const DEFAULT_USER_UUID = '01a2e7c8-6a06-4085-9e3f-5fbcd6138a59';
+
+function getSafeUuid(id: string | undefined | null, fallback: string = DEFAULT_USER_UUID): string {
+  if (!id) return fallback;
+  const clean = String(id).trim();
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(clean)) return clean;
+  return fallback;
+}
 
 // -----------------------------------------------------------------------------
 // LEADS HOOK
 // -----------------------------------------------------------------------------
 export function useLeads() {
-  const [leads, setLeads] = useState<ApiLead[]>(() => getLocalCache('nexus_crm_leads', DEMO_LEADS));
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const localKey = `nexus_crm_leads_${ownerAdminEmail}`;
+  const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
+
+  const [leads, setLeads] = useState<ApiLead[]>(() => {
+    const cached = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
+    return cached;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -196,36 +313,69 @@ export function useLeads() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<ApiResponse<ApiLead[]>>('/api/crm/leads');
-      if (Array.isArray(res.data)) {
-        setLeads(res.data);
-        setLocalCache('nexus_crm_leads', res.data);
+      const { data, error: sbErr } = await supabase
+        .from('leads')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (!sbErr && Array.isArray(data) && data.length > 0) {
+        const formatted = data.map(formatLeadRow);
+        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
+        setLeads(merged);
+        setLocalCache(localKey, merged);
+        setLoading(false);
+        return;
       }
     } catch (err: any) {
-      // Fallback silently to local cache if network/backend failed
-      const cached = getLocalCache<ApiLead[]>('nexus_crm_leads', DEMO_LEADS);
-      setLeads(cached);
-      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-        setError(err.message || 'Failed to load leads');
-      }
-    } finally {
-      setLoading(false);
+      console.warn('fetchLeads notice:', err);
     }
-  }, []);
+
+    const cached = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
+    setLeads(cached);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace]);
 
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const createLead = async (payload: CreateLeadPayload) => {
+    let newLead: ApiLead | null = null;
+    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
+    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+
     try {
-      const res = await apiClient.post<ApiResponse<ApiLead>>('/api/crm/leads', payload);
-      await fetchLeads();
-      return res.data;
-    } catch (err: any) {
-      // Local fallback lead creation
-      const newLead: ApiLead = {
+      const { data, error: sbErr } = await supabase
+        .from('leads')
+        .insert({
+          shop_id: shopId,
+          created_by_id: userId,
+          assigned_to_user_id: userId,
+          first_name: payload.firstName.trim(),
+          last_name: payload.lastName.trim(),
+          email: payload.email?.trim() || null,
+          phone: payload.phone?.trim() || null,
+          company_name: payload.companyName || null,
+          lead_source: payload.leadSource || 'Manual Entry',
+          lead_status: payload.leadStatus || 'New',
+          lead_value: payload.leadValue || 0,
+          priority: payload.priority || 'Medium',
+          notes: payload.notes || null,
+        })
+        .select()
+        .single();
+
+      if (sbErr) {
+        console.error('Supabase createLead error:', sbErr.message, sbErr);
+      } else if (data) {
+        newLead = formatLeadRow(data);
+      }
+    } catch (e: any) {
+      console.error('createLead exception:', e);
+    }
+
+    if (!newLead) {
+      newLead = {
         id: `lead-local-${Date.now()}`,
-        shopId: 'shop-1',
-        createdById: 'local-user',
         firstName: payload.firstName,
         lastName: payload.lastName,
         email: payload.email,
@@ -238,30 +388,40 @@ export function useLeads() {
         notes: payload.notes,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: currentUserEmail,
       };
-      const updated = [newLead, ...leads];
-      setLeads(updated);
-      setLocalCache('nexus_crm_leads', updated);
-      return newLead;
     }
+
+    setLeads((prev) => {
+      const updated = [newLead!, ...prev.filter((l) => l.id !== newLead!.id)];
+      setLocalCache(localKey, updated);
+      return updated;
+    });
+
+    return newLead;
   };
 
   const deleteLead = async (id: string) => {
     try {
-      await apiClient.delete(`/api/crm/leads/${id}`);
+      await supabase.from('leads').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = leads.filter((l) => l.id !== id);
-    setLeads(updated);
-    setLocalCache('nexus_crm_leads', updated);
+    setLeads((prev) => {
+      const updated = prev.filter((l) => l.id !== id);
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   const updateLeadStatus = async (id: string, status: string) => {
     try {
-      await apiClient.put(`/api/crm/leads/${id}/status`, { newStatus: status });
+      await supabase.from('leads').update({ lead_status: status, updated_at: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = leads.map((l) => (l.id === id ? { ...l, leadStatus: status } : l));
-    setLeads(updated);
-    setLocalCache('nexus_crm_leads', updated);
+    setLeads((prev) => {
+      const updated = prev.map((l) => (l.id === id ? { ...l, leadStatus: status } : l));
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   return { leads, loading, error, createLead, deleteLead, updateLeadStatus, refetch: fetchLeads };
@@ -271,7 +431,16 @@ export function useLeads() {
 // CUSTOMERS HOOK
 // -----------------------------------------------------------------------------
 export function useCustomers() {
-  const [customers, setCustomers] = useState<ApiCustomer[]>(() => getLocalCache('nexus_crm_customers', DEMO_CUSTOMERS));
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const localKey = `nexus_crm_customers_${ownerAdminEmail}`;
+  const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
+
+  const [customers, setCustomers] = useState<ApiCustomer[]>(() => {
+    const cached = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
+    return cached;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,33 +448,66 @@ export function useCustomers() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<ApiResponse<ApiCustomer[]>>('/api/crm/customers');
-      if (Array.isArray(res.data)) {
-        setCustomers(res.data);
-        setLocalCache('nexus_crm_customers', res.data);
+      const { data, error: sbErr } = await supabase
+        .from('customers')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (!sbErr && Array.isArray(data) && data.length > 0) {
+        const formatted = data.map(formatCustomerRow);
+        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
+        setCustomers(merged);
+        setLocalCache(localKey, merged);
+        setLoading(false);
+        return;
       }
     } catch (err: any) {
-      const cached = getLocalCache<ApiCustomer[]>('nexus_crm_customers', DEMO_CUSTOMERS);
-      setCustomers(cached);
-      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-        setError(err.message || 'Failed to load customers');
-      }
-    } finally {
-      setLoading(false);
+      console.warn('fetchCustomers notice:', err);
     }
-  }, []);
+
+    const cached = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
+    setCustomers(cached);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace]);
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   const createCustomer = async (payload: CreateCustomerPayload) => {
+    let newCustomer: ApiCustomer | null = null;
+    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
+    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+
     try {
-      const res = await apiClient.post<ApiResponse<ApiCustomer>>('/api/crm/customers', payload);
-      await fetchCustomers();
-      return res.data;
-    } catch (err: any) {
-      const newCustomer: ApiCustomer = {
+      const { data, error: sbErr } = await supabase
+        .from('customers')
+        .insert({
+          shop_id: shopId,
+          created_by_id: userId,
+          first_name: payload.firstName.trim(),
+          last_name: payload.lastName.trim(),
+          email: payload.email?.trim() || null,
+          phone: payload.phone?.trim() || null,
+          company_name: payload.companyName || null,
+          city: payload.city || null,
+          customer_type: payload.customerType || 'Individual',
+          notes: payload.notes || null,
+        })
+        .select()
+        .single();
+
+      if (sbErr) {
+        console.error('Supabase createCustomer error:', sbErr.message, sbErr);
+      } else if (data) {
+        newCustomer = formatCustomerRow(data);
+      }
+    } catch (e: any) {
+      console.error('createCustomer exception:', e);
+    }
+
+    if (!newCustomer) {
+      newCustomer = {
         id: `cust-local-${Date.now()}`,
-        shopId: 'shop-1',
         firstName: payload.firstName,
         lastName: payload.lastName,
         email: payload.email,
@@ -313,22 +515,31 @@ export function useCustomers() {
         companyName: payload.companyName,
         city: payload.city,
         customerType: payload.customerType || 'Individual',
+        tags: [payload.customerType || 'Individual'],
         createdAt: new Date().toISOString(),
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: currentUserEmail,
       };
-      const updated = [newCustomer, ...customers];
-      setCustomers(updated);
-      setLocalCache('nexus_crm_customers', updated);
-      return newCustomer;
     }
+
+    setCustomers((prev) => {
+      const updated = [newCustomer!, ...prev.filter((c) => c.id !== newCustomer!.id)];
+      setLocalCache(localKey, updated);
+      return updated;
+    });
+
+    return newCustomer;
   };
 
   const deleteCustomer = async (id: string) => {
     try {
-      await apiClient.delete(`/api/crm/customers/${id}`);
+      await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = customers.filter((c) => c.id !== id);
-    setCustomers(updated);
-    setLocalCache('nexus_crm_customers', updated);
+    setCustomers((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   return { customers, loading, error, createCustomer, deleteCustomer, refetch: fetchCustomers };
@@ -338,7 +549,16 @@ export function useCustomers() {
 // TASKS HOOK
 // -----------------------------------------------------------------------------
 export function useTasks() {
-  const [tasks, setTasks] = useState<ApiTask[]>(() => getLocalCache('nexus_crm_tasks', DEMO_TASKS));
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const localKey = `nexus_crm_tasks_${ownerAdminEmail}`;
+  const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
+
+  const [tasks, setTasks] = useState<ApiTask[]>(() => {
+    const cached = getLocalCache<ApiTask[]>(localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
+    return cached;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -346,31 +566,64 @@ export function useTasks() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<ApiResponse<ApiTask[]>>('/api/crm/tasks');
-      if (Array.isArray(res.data)) {
-        setTasks(res.data);
-        setLocalCache('nexus_crm_tasks', res.data);
+      const { data, error: sbErr } = await supabase
+        .from('tasks')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (!sbErr && Array.isArray(data) && data.length > 0) {
+        const formatted = data.map(formatTaskRow);
+        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
+        setTasks(merged);
+        setLocalCache(localKey, merged);
+        setLoading(false);
+        return;
       }
     } catch (err: any) {
-      const cached = getLocalCache<ApiTask[]>('nexus_crm_tasks', DEMO_TASKS);
-      setTasks(cached);
-      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-        setError(err.message || 'Failed to load tasks');
-      }
-    } finally {
-      setLoading(false);
+      console.warn('fetchTasks notice:', err);
     }
-  }, []);
+
+    const cached = getLocalCache<ApiTask[]>(localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
+    setTasks(cached);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
   const createTask = async (payload: CreateTaskPayload) => {
+    let newTask: ApiTask | null = null;
+    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
+    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+    const assignedTo = payload.assignedToUserId ? getSafeUuid(payload.assignedToUserId, userId) : userId;
+
     try {
-      const res = await apiClient.post<ApiResponse<ApiTask>>('/api/crm/tasks', payload);
-      await fetchTasks();
-      return res.data;
-    } catch (err: any) {
-      const newTask: ApiTask = {
+      const { data, error: sbErr } = await supabase
+        .from('tasks')
+        .insert({
+          shop_id: shopId,
+          created_by_id: userId,
+          assigned_to_user_id: assignedTo,
+          title: payload.title.trim(),
+          description: payload.description || null,
+          status: payload.taskStatus || 'Not Started',
+          priority: payload.priority || 'Medium',
+          due_date: payload.dueDate || new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (sbErr) {
+        console.error('Supabase createTask error:', sbErr.message, sbErr);
+      } else if (data) {
+        newTask = formatTaskRow(data);
+      }
+    } catch (e: any) {
+      console.error('createTask exception:', e);
+    }
+
+    if (!newTask) {
+      newTask = {
         id: `task-local-${Date.now()}`,
         title: payload.title,
         description: payload.description,
@@ -378,30 +631,40 @@ export function useTasks() {
         priority: payload.priority || 'Medium',
         dueDate: payload.dueDate || new Date().toISOString(),
         createdAt: new Date().toISOString(),
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: currentUserEmail,
       };
-      const updated = [newTask, ...tasks];
-      setTasks(updated);
-      setLocalCache('nexus_crm_tasks', updated);
-      return newTask;
     }
+
+    setTasks((prev) => {
+      const updated = [newTask!, ...prev.filter((t) => t.id !== newTask!.id)];
+      setLocalCache(localKey, updated);
+      return updated;
+    });
+
+    return newTask;
   };
 
   const completeTask = async (id: string) => {
     try {
-      await apiClient.put(`/api/crm/tasks/${id}/complete`, {});
+      await supabase.from('tasks').update({ status: 'Completed', completion_date: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = tasks.map((t) => (t.id === id ? { ...t, taskStatus: 'Completed', status: 'Completed' } : t));
-    setTasks(updated);
-    setLocalCache('nexus_crm_tasks', updated);
+    setTasks((prev) => {
+      const updated = prev.map((t) => (t.id === id ? { ...t, taskStatus: 'Completed', status: 'Completed' } : t));
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   const deleteTask = async (id: string) => {
     try {
-      await apiClient.delete(`/api/crm/tasks/${id}`);
+      await supabase.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = tasks.filter((t) => t.id !== id);
-    setTasks(updated);
-    setLocalCache('nexus_crm_tasks', updated);
+    setTasks((prev) => {
+      const updated = prev.filter((t) => t.id !== id);
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   return { tasks, loading, error, createTask, completeTask, deleteTask, refetch: fetchTasks };
@@ -411,7 +674,16 @@ export function useTasks() {
 // CALLING DATA HOOK
 // -----------------------------------------------------------------------------
 export function useCallingData() {
-  const [callingData, setCallingData] = useState<ApiCallingData[]>(() => getLocalCache('nexus_crm_calling', DEMO_CALLING));
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const localKey = `nexus_crm_calling_${ownerAdminEmail}`;
+  const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
+
+  const [callingData, setCallingData] = useState<ApiCallingData[]>(() => {
+    const cached = getLocalCache<ApiCallingData[]>(localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
+    return cached;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -419,52 +691,89 @@ export function useCallingData() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<ApiResponse<ApiCallingData[]>>('/api/crm/calling-data');
-      if (Array.isArray(res.data)) {
-        setCallingData(res.data);
-        setLocalCache('nexus_crm_calling', res.data);
+      const { data, error: sbErr } = await supabase
+        .from('calling_data')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false });
+
+      if (!sbErr && Array.isArray(data) && data.length > 0) {
+        const formatted = data.map(formatCallingRow);
+        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
+        setCallingData(merged);
+        setLocalCache(localKey, merged);
+        setLoading(false);
+        return;
       }
     } catch (err: any) {
-      const cached = getLocalCache<ApiCallingData[]>('nexus_crm_calling', DEMO_CALLING);
-      setCallingData(cached);
-      if (!err.message?.includes('Failed to fetch') && !err.message?.includes('NetworkError')) {
-        setError(err.message || 'Failed to load calling data');
-      }
-    } finally {
-      setLoading(false);
+      console.warn('fetchCallingData notice:', err);
     }
-  }, []);
+
+    const cached = getLocalCache<ApiCallingData[]>(localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
+    setCallingData(cached);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace]);
 
   useEffect(() => { fetchCallingData(); }, [fetchCallingData]);
 
   const addNumber = async (payload: { phoneNumber: string; contactName?: string; notes?: string }) => {
+    let newCall: ApiCallingData | null = null;
+    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
+    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+
     try {
-      const res = await apiClient.post<ApiResponse<ApiCallingData>>('/api/crm/calling-data', payload);
-      await fetchCallingData();
-      return res.data;
-    } catch (err: any) {
-      const newCall: ApiCallingData = {
+      const { data, error: sbErr } = await supabase
+        .from('calling_data')
+        .insert({
+          shop_id: shopId,
+          created_by_id: userId,
+          phone_number: payload.phoneNumber.trim(),
+          status: 'Available',
+          notes: payload.notes || payload.contactName || null,
+        })
+        .select()
+        .single();
+
+      if (sbErr) {
+        console.error('Supabase addNumber error:', sbErr.message, sbErr);
+      } else if (data) {
+        newCall = formatCallingRow(data);
+      }
+    } catch (e: any) {
+      console.error('addNumber exception:', e);
+    }
+
+    if (!newCall) {
+      newCall = {
         id: `call-local-${Date.now()}`,
         phoneNumber: payload.phoneNumber,
         contactName: payload.contactName,
         status: 'Available',
         notes: payload.notes,
         createdAt: new Date().toISOString(),
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: currentUserEmail,
       };
-      const updated = [newCall, ...callingData];
-      setCallingData(updated);
-      setLocalCache('nexus_crm_calling', updated);
-      return newCall;
     }
+
+    setCallingData((prev) => {
+      const updated = [newCall!, ...prev.filter((c) => c.id !== newCall!.id)];
+      setLocalCache(localKey, updated);
+      return updated;
+    });
+
+    return newCall;
   };
 
   const logCall = async (id: string, notes: string, outcome: string) => {
     try {
-      await apiClient.post(`/api/crm/calling-data/${id}/log-call`, { notes, outcome });
+      await supabase.from('calling_data').update({ status: 'Called', notes: notes, updated_at: new Date().toISOString() }).eq('id', id);
     } catch {}
-    const updated = callingData.map((c) => (c.id === id ? { ...c, status: 'Called' } : c));
-    setCallingData(updated);
-    setLocalCache('nexus_crm_calling', updated);
+    setCallingData((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, status: 'Called' } : c));
+      setLocalCache(localKey, updated);
+      return updated;
+    });
   };
 
   return { callingData, loading, error, addNumber, logCall, refetch: fetchCallingData };

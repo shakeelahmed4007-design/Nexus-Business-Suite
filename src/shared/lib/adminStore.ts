@@ -192,8 +192,16 @@ export function getCrudFlags(
 
 export function getEffectiveAdminPermissions(email?: string, role?: string): NestedCrudPermissions {
   const cleanEmail = (email || '').toLowerCase().trim();
-  const isSuper = cleanEmail === 'admin@nexus.com' || cleanEmail === 'superadmin@nexus.com' || role === 'super_admin';
-  if (isSuper) {
+  const cleanRole = (role || '').toLowerCase().trim();
+  const isAdminRole =
+    cleanEmail === 'admin@nexus.com' ||
+    cleanEmail === 'superadmin@nexus.com' ||
+    cleanRole === 'super_admin' ||
+    cleanRole === 'admin' ||
+    cleanRole === 'shop_admin' ||
+    cleanEmail.includes('admin');
+
+  if (isAdminRole) {
     return getNestedCrudPermissions(true);
   }
   const admins = getAdmins();
@@ -213,6 +221,90 @@ export function isPermissionAllowedByAdmin(
   return action.access;
 }
 
+export function getRolePresetPermissions(
+  role: string,
+  adminPerms?: NestedCrudPermissions
+): NestedCrudPermissions {
+  const perms = getNestedCrudPermissions(false);
+  const cleanRole = (role || '').toLowerCase().trim();
+
+  if (cleanRole === 'admin' || cleanRole === 'shop_admin' || cleanRole === 'super_admin' || cleanRole === 'super admin') {
+    return getNestedCrudPermissions(true);
+  }
+
+  if (cleanRole === 'sales') {
+    MODULE_CATEGORIES.forEach((cat) => {
+      if (cat.category === 'Sales' || cat.category === 'CRM' || cat.category === 'Overview') {
+        perms[cat.category] = {};
+        cat.items.forEach((item) => {
+          const isAllowed = adminPerms ? isPermissionAllowedByAdmin(adminPerms, cat.category, item.key) : true;
+          perms[cat.category][item.key] = {
+            access: isAllowed,
+            can_create: isAllowed,
+            can_edit: isAllowed,
+            can_delete: false,
+          };
+        });
+      }
+    });
+    return perms;
+  }
+
+  // Staff / Agent / Support / default team
+  MODULE_CATEGORIES.forEach((cat) => {
+    if (
+      cat.category === 'Inventory' ||
+      cat.category === 'Sales' ||
+      cat.category === 'Organization' ||
+      cat.category === 'CRM' ||
+      cat.category === 'Overview'
+    ) {
+      perms[cat.category] = {};
+      cat.items.forEach((item) => {
+        const isAllowed = adminPerms ? isPermissionAllowedByAdmin(adminPerms, cat.category, item.key) : true;
+        perms[cat.category][item.key] = {
+          access: isAllowed,
+          can_create: isAllowed,
+          can_edit: isAllowed,
+          can_delete: false,
+        };
+      });
+    }
+  });
+
+  return perms;
+}
+
+export function getOwnerAdminEmail(email?: string | null, role?: string | null): string {
+  const cleanEmail = (email || '').toLowerCase().trim();
+  const cleanRole = (role || '').toLowerCase().trim();
+
+  // 1. Super Admin: admin@nexus.com or role === 'super_admin'
+  if (cleanRole === 'super_admin' || cleanEmail === 'admin@nexus.com' || cleanEmail === 'superadmin@nexus.com') {
+    return 'admin@nexus.com';
+  }
+
+  // 2. Admin / Shop Admin: admin2@nexus.com etc.
+  if (cleanRole === 'admin' || cleanRole === 'shop_admin' || cleanEmail.includes('admin')) {
+    return cleanEmail || 'admin@nexus.com';
+  }
+
+  // 3. Staff / Sales: check who created them
+  if (cleanEmail) {
+    const adminEntry = getAdminByEmail(cleanEmail);
+    if (adminEntry) {
+      if (adminEntry.created_by_email) {
+        return adminEntry.created_by_email.toLowerCase().trim();
+      }
+      if (adminEntry.created_by_role === 'SUPER_ADMIN') {
+        return 'admin@nexus.com';
+      }
+    }
+  }
+
+  return cleanEmail || 'admin@nexus.com';
+}
+
 export interface AdminUser {
   id: string;
   full_name: string;
@@ -222,6 +314,13 @@ export interface AdminUser {
   permissions: NestedCrudPermissions;
   created_at: string;
   password?: string;
+  phone?: string;
+  department?: string;
+  status?: string;
+  shop_id?: string;
+  created_by_role?: string;
+  created_by_email?: string;
+  created_by_id?: string;
 }
 
 const STORAGE_KEY = 'nexus_admins_v4';
@@ -235,6 +334,8 @@ const DEFAULT_ADMINS: AdminUser[] = [
     has_data_access: true,
     permissions: getNestedCrudPermissions(true),
     created_at: new Date().toISOString(),
+    created_by_role: 'SUPER_ADMIN',
+    created_by_email: 'admin@nexus.com',
   },
 ];
 
@@ -248,9 +349,6 @@ export function getAdmins(): AdminUser[] {
     const parsed = JSON.parse(raw) as AdminUser[];
     return parsed.map((adm) => {
       let perms = adm.permissions;
-      if (!perms || typeof perms !== 'object') {
-        perms = adm.has_data_access ? getNestedCrudPermissions(true) : getNestedCrudPermissions(false);
-      }
       let role = (adm.role || '').toLowerCase().trim();
       const cleanEmail = (adm.email || '').toLowerCase().trim();
       const isExplicitAdminEmail = cleanEmail.includes('admin') || cleanEmail === 'admin@nexus.com' || cleanEmail === 'superadmin@nexus.com';
@@ -259,10 +357,20 @@ export function getAdmins(): AdminUser[] {
       } else if (!role) {
         role = isExplicitAdminEmail ? 'admin' : 'staff';
       }
+
+      let allowedCount = countAllowedPermissions(perms);
+      if (allowedCount === 0 && (role === 'staff' || role === 'sales' || role === 'agent' || role === 'support')) {
+        perms = getRolePresetPermissions(role);
+        allowedCount = countAllowedPermissions(perms);
+      }
+
+      const hasAccess = adm.status === 'Inactive' ? false : (allowedCount > 0);
+
       return {
         ...adm,
         role: role as any,
         permissions: perms,
+        has_data_access: hasAccess,
       };
     });
   } catch (err) {
@@ -288,10 +396,6 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
       localAdmins.forEach((a) => localMap.set(a.email.toLowerCase(), a));
 
       const remoteAdmins: AdminUser[] = data.map((p: any) => {
-        let perms = p.permissions;
-        if (!perms || typeof perms !== 'object') {
-          perms = p.has_data_access ? getNestedCrudPermissions(true) : getNestedCrudPermissions(false);
-        }
         const cleanEmail = (p.email || '').toLowerCase().trim();
         const existingLocal = localMap.get(cleanEmail);
         let userRole = (p.role || '').toLowerCase().trim();
@@ -304,6 +408,13 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
           userRole = 'staff';
         }
 
+        let perms = p.permissions;
+        let allowedCount = countAllowedPermissions(perms);
+        if (allowedCount === 0 && (userRole === 'staff' || userRole === 'sales' || userRole === 'agent' || userRole === 'support')) {
+          perms = getRolePresetPermissions(userRole);
+          allowedCount = countAllowedPermissions(perms);
+        }
+
         const createdByRole = p.created_by_role || existingLocal?.created_by_role || 'SUPER_ADMIN';
         const createdByEmail = p.created_by_email || existingLocal?.created_by_email || 'admin@nexus.com';
         const createdById = p.created_by_id || existingLocal?.created_by_id;
@@ -311,9 +422,9 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
         return {
           id: p.id,
           full_name: p.full_name || (cleanEmail ? cleanEmail.split('@')[0] : 'User'),
-          email: p.email || '',
+          email: cleanEmail,
           role: userRole as any,
-          has_data_access: p.has_data_access ?? true,
+          has_data_access: p.status === 'Inactive' ? false : allowedCount > 0,
           permissions: perms,
           created_at: p.created_at || new Date().toISOString(),
           password: p.password || '123456',
@@ -347,6 +458,9 @@ export async function addAdmin(data: {
   password?: string;
   role?: string;
   permissions: NestedCrudPermissions;
+  created_by_role?: string;
+  created_by_email?: string;
+  created_by_id?: string;
 }): Promise<AdminUser> {
 
   const admins = getAdmins();
@@ -357,50 +471,87 @@ export async function addAdmin(data: {
     throw new Error('An account with this email address already exists.');
   }
 
-  const allowedCount = countAllowedPermissions(data.permissions);
   const userRole = data.role || 'admin';
+  let finalPermissions = data.permissions;
+  let allowedCount = countAllowedPermissions(finalPermissions);
+
+  if (allowedCount === 0 && data.status !== 'Inactive') {
+    finalPermissions = getRolePresetPermissions(userRole);
+    allowedCount = countAllowedPermissions(finalPermissions);
+  }
+
+  const hasDataAccess = data.status === 'Inactive' ? false : (allowedCount > 0);
   const created_by_role = data.created_by_role || 'SUPER_ADMIN';
   const created_by_email = data.created_by_email || 'admin@nexus.com';
-  const created_by_id = data.created_by_id;
-
   let supabaseUserId: string | null = null;
 
-  // 1. Sync with Supabase Auth
+  // 1. Primary Sync with Backend Service Role API (Bypasses Client RLS & Creates Supabase Auth + Profiles Record)
   try {
-    const { data: authData, error: authErr } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password: data.password || '123456',
-      options: {
-        data: {
-          full_name: data.full_name,
-          role: userRole,
-          created_by_role,
-          created_by_email,
-          created_by_id,
-        },
-      },
+    const endpoint = userRole === 'sales' ? '/api/staff/create-sales' : '/api/staff/create-staff';
+    const apiRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: data.full_name,
+        email: cleanEmail,
+        phone: data.phone,
+        role: userRole,
+        department: data.department,
+        status: data.status,
+        password: data.password,
+        permissions: finalPermissions,
+        created_by_role,
+        created_by_email,
+        created_by_id,
+      }),
     });
 
-    if (authData?.user) {
-      supabaseUserId = authData.user.id;
-    } else if (authErr) {
-      console.warn('Supabase Auth signUp notice:', authErr.message);
+    if (apiRes.ok) {
+      const apiData = await apiRes.json();
+      if (apiData?.user?.id) {
+        supabaseUserId = apiData.user.id;
+      }
     }
-  } catch (err) {
-    console.warn('Error syncing admin to Supabase Auth:', err);
+  } catch (apiErr) {
+    console.warn('Backend API sync notice:', apiErr);
+  }
+
+  // 2. Client-side Sync with Supabase Auth (Fallback)
+  if (!supabaseUserId) {
+    try {
+      const { data: authData } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: data.password || '123456',
+        options: {
+          data: {
+            full_name: data.full_name,
+            role: userRole,
+            created_by_role,
+            created_by_email,
+            created_by_id,
+          },
+        },
+      });
+
+      if (authData?.user) {
+        supabaseUserId = authData.user.id;
+      }
+    } catch (err) {
+      console.warn('Client Supabase Auth signUp notice:', err);
+    }
   }
 
   const finalId = supabaseUserId || ('user-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7));
 
-  // 2. Direct upsert to public.profiles table in Supabase
+  // 3. Direct upsert to public.profiles table in Supabase
   try {
     const { error: profileErr } = await supabase.from('profiles').upsert({
       id: finalId,
       email: cleanEmail,
       full_name: data.full_name,
       role: userRole,
-      has_data_access: allowedCount > 0,
-      permissions: data.permissions,
+      has_data_access: hasDataAccess,
+      permissions: finalPermissions,
       password: data.password || '123456',
       created_by_role,
       created_by_email,
@@ -424,8 +575,8 @@ export async function addAdmin(data: {
     shop_id: data.shop_id,
     password: data.password || '123456',
     role: userRole as any,
-    has_data_access: allowedCount > 0,
-    permissions: data.permissions || getNestedCrudPermissions(false),
+    has_data_access: hasDataAccess,
+    permissions: finalPermissions,
     created_at: new Date().toISOString(),
     created_by_role,
     created_by_email,

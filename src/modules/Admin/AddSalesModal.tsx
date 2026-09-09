@@ -15,7 +15,7 @@ import {
   Percent,
   RefreshCw,
 } from 'lucide-react';
-import { addAdmin, NestedCrudPermissions, getNestedCrudPermissions } from '@/shared/lib/adminStore';
+import { addAdmin, NestedCrudPermissions, getRolePresetPermissions } from '@/shared/lib/adminStore';
 import { validateMemberViaApi, MemberValidationResult } from '@/shared/lib/memberValidationService';
 import { useAuth } from '@/shared/context/AuthContext';
 
@@ -131,12 +131,7 @@ export function AddSalesModal({ isOpen, onClose, onSuccess }: AddSalesModalProps
       }
     }
 
-    if (email && !email.includes('@mtnexusglobal.com')) {
-      const namePart = `${firstName}.${lastName}`.toLowerCase().replace(/[^a-z0-9]/g, '.') || 'sales';
-      setEmail(`${namePart}@mtnexusglobal.com`);
-    }
-
-    setSuccessMsg('Applied AI suggestions for Email Domain & Password!');
+    setSuccessMsg('Applied AI suggestions for Password!');
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
@@ -159,42 +154,43 @@ export function AddSalesModal({ isOpen, onClose, onSuccess }: AddSalesModalProps
     setIsSubmitting(true);
 
     try {
-      // 1. Try sending to Express Backend Endpoint /api/staff/create-sales
-      const res = await fetch('/api/staff/create-sales', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName,
-          email,
-          phone,
-          salesTerritory,
-          commissionRate,
-          shopAssignments,
-          status,
-          password,
-          created_by_role: createdByRole,
-          created_by_email: currentUserEmail,
-          created_by_id: user?.id,
-        }),
+      const defaultSalesPerms: NestedCrudPermissions = getRolePresetPermissions('sales');
+      await addAdmin({
+        full_name: fullName,
+        email,
+        phone,
+        department: 'Sales',
+        status,
+        shop_id: shopAssignments.join(','),
+        password,
+        role: 'sales',
+        permissions: defaultSalesPerms,
+        created_by_role: createdByRole,
+        created_by_email: currentUserEmail,
+        created_by_id: user?.id,
       });
 
-      if (!res.ok) {
-        // Fallback to local adminStore addAdmin
-        const defaultSalesPerms: NestedCrudPermissions = getNestedCrudPermissions(false);
-        await addAdmin({
-          full_name: fullName,
-          email,
-          phone,
-          department: 'Sales',
-          status,
-          shop_id: shopAssignments.join(','),
-          password,
-          role: 'sales',
-          permissions: defaultSalesPerms,
-          created_by_role: createdByRole,
-          created_by_email: currentUserEmail,
-          created_by_id: user?.id,
+      // Best effort backend notification
+      try {
+        await fetch('/api/staff/create-sales', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fullName,
+            email,
+            phone,
+            salesTerritory,
+            commissionRate,
+            shopAssignments,
+            status,
+            password,
+            created_by_role: createdByRole,
+            created_by_email: currentUserEmail,
+            created_by_id: user?.id,
+          }),
         });
+      } catch (backendErr) {
+        console.warn('Backend API notification notice:', backendErr);
       }
 
       setSuccessMsg(`Sales Representative "${fullName}" created successfully!`);

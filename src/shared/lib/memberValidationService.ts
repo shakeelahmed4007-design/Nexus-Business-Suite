@@ -74,13 +74,6 @@ export function validateMemberData(
     errors.push('Email address is required.');
   } else if (!emailRegex.test(email)) {
     errors.push('Invalid email address format.');
-  } else {
-    // Check company domain
-    const domain = email.split('@')[1]?.toLowerCase();
-    if (domain && !COMPANY_DOMAINS.some((cd) => domain === cd || domain.endsWith('.' + cd))) {
-      warnings.push(`Email domain '@${domain}' is not a recognized company email (@nexusglobal.com). Please confirm if external domain is intended.`);
-      suggestions.push(`Consider using corporate email format (e.g. ${name.toLowerCase().replace(/\s+/g, '.')}@nexusglobal.com).`);
-    }
   }
 
 
