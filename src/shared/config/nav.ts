@@ -20,6 +20,7 @@ import {
   FileBarChart,
   LineChart,
   MessageSquare,
+  Link2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -55,6 +56,7 @@ export const navItems: NavItem[] = [
   { label: 'Team / HR', path: '/hr', icon: UserSquare2, group: 'Organization', allowedRoles: ['Admin', 'HR'] },
   { label: 'Social Media', path: '/social', icon: Share2, group: 'Organization', allowedRoles: ['Admin', 'HR', 'Call Agent'] },
   { label: 'Messages', path: '/messages', icon: MessageSquare, group: 'Organization', allowedRoles: ['Admin', 'HR', 'Call Agent'] },
+  { label: 'Integrations', path: '/integrations', icon: Link2, group: 'Organization', allowedRoles: ['Admin', 'HR', 'Call Agent'] },
 
   { label: 'Auto-Report AI', path: '/auto-report', icon: FileBarChart, group: 'Intelligence', allowedRoles: ['Admin'] },
   { label: 'Forecasting', path: '/forecasting', icon: LineChart, group: 'Intelligence', allowedRoles: ['Admin'] },

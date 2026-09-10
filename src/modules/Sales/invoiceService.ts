@@ -1,7 +1,7 @@
 import { supabase } from '@/shared/lib/supabaseClient';
 import { invoices as initialInvoices, type Invoice } from '@/modules/Sales/invoices';
 
-const BACKEND_URL = 'http://localhost:5000/api';
+const BACKEND_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000') + '/api';
 
 function getLocalInvoices(key: string, fallback: Invoice[]): Invoice[] {
   try {

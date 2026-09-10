@@ -27,6 +27,7 @@ import {
 import { PageHeader } from '@/shared/components/ui/PageHeader';
 import { Button } from '@/shared/components/ui/Button';
 import { Card } from '@/shared/components/ui/Card';
+import { useAuth } from '@/shared/context/AuthContext';
 import {
   getAdmins,
   syncAdminsFromSupabase,
@@ -44,6 +45,11 @@ import {
 } from '@/shared/lib/adminStore';
 
 export function AdminManagementPage() {
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || 'admin@nexus.com').toLowerCase().trim();
+  const currentRole = (profile?.role || user?.user_metadata?.role || 'super_admin').toLowerCase().trim();
+  const isSuperAdmin = currentRole === 'super_admin' || currentUserEmail === 'admin@nexus.com';
+  const createdByRole = isSuperAdmin ? 'SUPER_ADMIN' : 'ADMIN';
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -216,6 +222,9 @@ export function AdminManagementPage() {
         password: password,
         role: role,
         permissions: permissions,
+        created_by_role: createdByRole,
+        created_by_email: currentUserEmail,
+        created_by_id: user?.id,
       });
 
       setSuccessMsg(

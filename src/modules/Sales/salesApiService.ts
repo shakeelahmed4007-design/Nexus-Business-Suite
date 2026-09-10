@@ -3,7 +3,7 @@ import { orders as initialOrders, type Order } from '@/modules/Sales/orders';
 import { type Invoice } from '@/modules/Sales/invoices';
 import { type Payment } from '@/modules/Sales/payments';
 
-const BACKEND_URL = 'http://localhost:5000/api';
+const BACKEND_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000') + '/api';
 
 export interface PosCheckoutPayload {
   shop_id: string;

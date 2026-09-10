@@ -26,6 +26,7 @@ import { VendorsPage } from '@/modules/Inventory/VendorsPage';
 import { HrPage } from '@/modules/Organization/HrPage';
 import { SocialPage } from '@/modules/Organization/SocialPage';
 import { MessagesPage } from '@/modules/Organization/MessagesPage';
+import { IntegrationsPage } from '@/modules/Organization/IntegrationsPage';
 import { AutoReportPage } from '@/modules/Intelligence/AutoReportPage';
 import { ForecastingPage } from '@/modules/Intelligence/ForecastingPage';
 import { AdminManagementPage } from '@/modules/Admin/AdminManagementPage';
@@ -58,29 +59,21 @@ function App() {
               }
             />
 
-            {/* Sales Route */}
+            {/* Sales / Staff Route fallback */}
             <Route
               path="/sales"
-              element={
-                <RequireRole allowedRoles={['sales', 'staff']}>
-                  <StaffDashboard />
-                </RequireRole>
-              }
+              element={<Navigate to="/" replace />}
             />
             <Route
               path="/staff"
-              element={
-                <RequireRole allowedRoles={['sales', 'staff']}>
-                  <StaffDashboard />
-                </RequireRole>
-              }
+              element={<Navigate to="/" replace />}
             />
 
-            {/* Main Application Suite for Super Admin & Admins */}
+            {/* Main Application Suite for All Logged In Users */}
             <Route
               path="/*"
               element={
-                <RequireRole allowedRoles={['super_admin', 'admin', 'shop_admin']}>
+                <RequireRole allowedRoles={['super_admin', 'admin', 'shop_admin', 'sales', 'staff']}>
                   <AppLayout>
                     <Routes>
                       <Route path="/" element={<DashboardPage />} />
@@ -101,6 +94,7 @@ function App() {
                       <Route path="/hr" element={<HrPage />} />
                       <Route path="/social" element={<SocialPage />} />
                       <Route path="/messages" element={<MessagesPage />} />
+                      <Route path="/integrations" element={<IntegrationsPage />} />
                       <Route path="/auto-report" element={<AutoReportPage />} />
                       <Route path="/forecasting" element={<ForecastingPage />} />
                       <Route path="/admin-management" element={<AdminManagementPage />} />

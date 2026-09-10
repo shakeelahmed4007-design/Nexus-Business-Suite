@@ -351,11 +351,8 @@ export function getAdmins(): AdminUser[] {
       let perms = adm.permissions;
       let role = (adm.role || '').toLowerCase().trim();
       const cleanEmail = (adm.email || '').toLowerCase().trim();
-      const isExplicitAdminEmail = cleanEmail.includes('admin') || cleanEmail === 'admin@nexus.com' || cleanEmail === 'superadmin@nexus.com';
-      if (!isExplicitAdminEmail && (role === 'admin' || role === '')) {
-        role = 'staff';
-      } else if (!role) {
-        role = isExplicitAdminEmail ? 'admin' : 'staff';
+      if (!role) {
+        role = cleanEmail.includes('admin') || cleanEmail === 'admin@nexus.com' ? 'admin' : 'staff';
       }
 
       let allowedCount = countAllowedPermissions(perms);
@@ -400,12 +397,10 @@ export async function syncAdminsFromSupabase(): Promise<AdminUser[]> {
         const existingLocal = localMap.get(cleanEmail);
         let userRole = (p.role || '').toLowerCase().trim();
 
-        if (existingLocal && existingLocal.role && existingLocal.role !== 'admin' && existingLocal.role !== 'shop_admin') {
+        if (existingLocal && existingLocal.role) {
           userRole = existingLocal.role;
         } else if (!userRole) {
           userRole = cleanEmail.includes('admin') ? 'admin' : 'staff';
-        } else if (!cleanEmail.includes('admin') && userRole === 'admin') {
-          userRole = 'staff';
         }
 
         let perms = p.permissions;
@@ -483,6 +478,7 @@ export async function addAdmin(data: {
   const hasDataAccess = data.status === 'Inactive' ? false : (allowedCount > 0);
   const created_by_role = data.created_by_role || 'SUPER_ADMIN';
   const created_by_email = data.created_by_email || 'admin@nexus.com';
+  const created_by_id = data.created_by_id || undefined;
   let supabaseUserId: string | null = null;
 
   // 1. Primary Sync with Backend Service Role API (Bypasses Client RLS & Creates Supabase Auth + Profiles Record)

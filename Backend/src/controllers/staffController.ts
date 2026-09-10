@@ -78,6 +78,7 @@ export const createStaffUserDedicated = async (req: AuthenticatedRequest, res: R
         full_name: fullName,
         role: userRole,
         has_data_access: status !== 'Inactive',
+        permissions: req.body.permissions || null,
         password: password || 'Nexus#2026!Staff',
         created_by_role: cRole,
         created_by_email: cEmail,
@@ -92,7 +93,7 @@ export const createStaffUserDedicated = async (req: AuthenticatedRequest, res: R
 };
 
 export const createSalesUserDedicated = async (req: AuthenticatedRequest, res: Response) => {
-  const { fullName, email, phone, salesTerritory, commissionRate, shopAssignments, status, password, created_by_role, created_by_email, created_by_id } = req.body;
+  const { fullName, email, phone, salesTerritory, commissionRate, shopAssignments, status, password, created_by_role, created_by_email, created_by_id, permissions } = req.body;
   if (!email || !fullName) {
     return res.status(400).json({ error: 'fullName and email are required' });
   }
@@ -131,6 +132,7 @@ export const createSalesUserDedicated = async (req: AuthenticatedRequest, res: R
         full_name: fullName,
         role: 'sales',
         has_data_access: status !== 'Inactive',
+        permissions: permissions || null,
         password: password || 'Nexus#2026!Sales',
         created_by_role: cRole,
         created_by_email: cEmail,
@@ -187,12 +189,6 @@ export const validateMemberDataHandler = async (req: AuthenticatedRequest, res: 
       errors.push('Email address is required.');
     } else if (!emailRegex.test(email)) {
       errors.push('Invalid email address format.');
-    } else {
-      const domain = email.split('@')[1]?.toLowerCase();
-      if (domain && !['nexusglobal.com', 'nexus.com'].some((cd) => domain === cd || domain.endsWith('.' + cd))) {
-        warnings.push(`Email domain '@${domain}' is not a recognized company email (@nexusglobal.com).`);
-        suggestions.push(`Consider using corporate email format (e.g. ${name.toLowerCase().replace(/\s+/g, '.')}@nexusglobal.com).`);
-      }
     }
 
     // 2. Phone validation

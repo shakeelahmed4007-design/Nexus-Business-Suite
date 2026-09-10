@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/shared/lib/supabaseClient';
-import { checkAdminCredentials, getAdminByEmail } from '@/shared/lib/adminStore';
+import { getAdminByEmail } from '@/shared/lib/adminStore';
 
 export type UserRole = 'super_admin' | 'admin' | 'sales' | 'shop_admin' | 'staff';
 
@@ -34,10 +34,26 @@ const AuthCtx = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+function getStoredSession(): { user: User | null; profile: UserProfile | null } {
+  try {
+    const storedLocal = localStorage.getItem('nexus_current_session');
+    if (storedLocal) {
+      const parsed = JSON.parse(storedLocal);
+      if (parsed?.user) {
+        return { user: parsed.user, profile: parsed.profile || null };
+      }
+    }
+  } catch (e) {
+    // Fail silently
+  }
+  return { user: null, profile: null };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const initialSession = getStoredSession();
+  const [user, setUser] = useState<User | null>(initialSession.user);
+  const [profile, setProfile] = useState<UserProfile | null>(initialSession.profile);
+  const [loading, setLoading] = useState<boolean>(!initialSession.user);
 
   const fetchProfile = async (userId: string, email?: string) => {
     try {
@@ -55,7 +71,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             hasAccess = Boolean(storeAdmin.has_data_access);
           }
         }
-        setProfile({ ...data, has_data_access: hasAccess } as UserProfile);
+        const updatedProfile = { ...data, has_data_access: hasAccess } as UserProfile;
+        setProfile(updatedProfile);
+
+        // Keep local storage session in sync
+        const currentLocal = getStoredSession();
+        if (currentLocal.user) {
+          localStorage.setItem(
+            'nexus_current_session',
+            JSON.stringify({ user: currentLocal.user, profile: updatedProfile })
+          );
+        }
       }
     } catch (err) {
       console.warn('Profile fetch warning:', err);
@@ -70,23 +96,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Safety timeout: Ensure loading screen never gets stuck
     const timeoutId = setTimeout(() => {
       if (mounted) setLoading(false);
-    }, 1000);
+    }, 800);
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
       if (currentUser) {
+        setUser(currentUser);
         fetchProfile(currentUser.id, currentUser.email);
       } else {
-        // Check if there is a local session stored
-        const storedLocal = localStorage.getItem('nexus_current_session');
-        if (storedLocal) {
-          try {
-            const parsed = JSON.parse(storedLocal);
-            setUser(parsed.user);
-            setProfile(parsed.profile);
-          } catch (e) {}
+        const local = getStoredSession();
+        if (local.user) {
+          setUser(local.user);
+          setProfile(local.profile);
+        } else {
+          setUser(null);
+          setProfile(null);
         }
         setLoading(false);
       }
@@ -97,12 +122,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       const currentUser = session?.user ?? null;
-      setUser(currentUser);
       if (currentUser) {
+        setUser(currentUser);
         fetchProfile(currentUser.id, currentUser.email);
       } else {
-        const storedLocal = localStorage.getItem('nexus_current_session');
-        if (!storedLocal) {
+        const local = getStoredSession();
+        if (local.user) {
+          setUser(local.user);
+          setProfile(local.profile);
+        } else {
+          setUser(null);
           setProfile(null);
         }
         setLoading(false);
@@ -146,7 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: cleanEmail,
           full_name: existingInStore?.full_name || (isSuper ? 'Super Admin' : 'User'),
           role: role,
-          shop_id: null,
+          shop_id: 'shop-001',
           has_data_access: hasAccess,
         };
 
@@ -177,6 +206,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               (data.user.user_metadata?.role as UserRole) ||
               'super_admin';
 
+        localStorage.setItem(
+          'nexus_current_session',
+          JSON.stringify({ user: data.user, profile: profile })
+        );
         setLoading(false);
         return { error: null, role: effectiveRole };
       }
@@ -210,7 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const currentRole = profile?.role || (user?.user_metadata?.role as UserRole) || null;
-  const currentShopId = profile?.shop_id || (user?.user_metadata?.shop_id as string) || null;
+  const currentShopId = profile?.shop_id || (user?.user_metadata?.shop_id as string) || 'shop-001';
 
   return (
     <AuthCtx.Provider

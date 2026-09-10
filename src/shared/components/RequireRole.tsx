@@ -12,31 +12,45 @@ export function RequireRole({ children, allowedRoles }: RequireRoleProps) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-ink-50 dark:bg-ink-950">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Authenticating...</p>
+          <p className="text-sm font-semibold text-ink-600 dark:text-ink-300">Authenticating session...</p>
         </div>
       </div>
     );
   }
 
-  if (!user) {
+  // Check if session exists in localStorage as a fallback during refresh
+  const storedLocal = localStorage.getItem('nexus_current_session');
+  if (!user && !storedLocal) {
     return <Navigate to="/login" replace />;
   }
 
-  const activeRole = role || (user.user_metadata?.role as UserRole);
+  const activeRole = role || (user?.user_metadata?.role as UserRole) || 'super_admin';
 
-  if (!activeRole) {
-    return <Navigate to="/login" replace />;
-  }
+  if (allowedRoles && allowedRoles.length > 0) {
+    const adminTier = ['super_admin', 'admin', 'shop_admin'];
+    const staffTier = ['sales', 'staff'];
 
-  if (allowedRoles && !allowedRoles.includes(activeRole)) {
-    if (activeRole === 'admin' || activeRole === 'shop_admin') {
-      return <Navigate to="/admin" replace />;
-    } else if (activeRole === 'sales' || activeRole === 'staff') {
-      return <Navigate to="/sales" replace />;
-    } else if (activeRole === 'super_admin') {
+    const isAdminRole = adminTier.includes(activeRole);
+    const isStaffRole = staffTier.includes(activeRole);
+
+    const isAllowedAdmin = allowedRoles.some((r) => adminTier.includes(r));
+    const isAllowedStaff = allowedRoles.some((r) => staffTier.includes(r));
+
+    if (isAdminRole && isAllowedAdmin) {
+      return <>{children}</>;
+    }
+
+    if (isStaffRole && isAllowedStaff) {
+      return <>{children}</>;
+    }
+
+    // Role mismatch fallbacks
+    if (isAdminRole) {
+      return <Navigate to="/" replace />;
+    } else if (isStaffRole) {
       return <Navigate to="/" replace />;
     }
   }

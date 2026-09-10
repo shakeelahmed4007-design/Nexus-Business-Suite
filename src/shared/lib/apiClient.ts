@@ -8,6 +8,7 @@
 
 function getApiBase(): string {
   if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
+  if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
   try {
     const custom = localStorage.getItem('nexus_api_url');
     if (custom) return custom;

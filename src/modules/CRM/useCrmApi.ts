@@ -121,7 +121,7 @@ function getLocalCache<T>(key: string, fallback: T): T {
 function setLocalCache<T>(key: string, data: T) {
   try {
     localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+  } catch { }
 }
 
 // -----------------------------------------------------------------------------
@@ -405,7 +405,7 @@ export function useLeads() {
   const deleteLead = async (id: string) => {
     try {
       await supabase.from('leads').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setLeads((prev) => {
       const updated = prev.filter((l) => l.id !== id);
       setLocalCache(localKey, updated);
@@ -416,7 +416,7 @@ export function useLeads() {
   const updateLeadStatus = async (id: string, status: string) => {
     try {
       await supabase.from('leads').update({ lead_status: status, updated_at: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setLeads((prev) => {
       const updated = prev.map((l) => (l.id === id ? { ...l, leadStatus: status } : l));
       setLocalCache(localKey, updated);
@@ -534,7 +534,7 @@ export function useCustomers() {
   const deleteCustomer = async (id: string) => {
     try {
       await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setCustomers((prev) => {
       const updated = prev.filter((c) => c.id !== id);
       setLocalCache(localKey, updated);
@@ -648,7 +648,7 @@ export function useTasks() {
   const completeTask = async (id: string) => {
     try {
       await supabase.from('tasks').update({ status: 'Completed', completion_date: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setTasks((prev) => {
       const updated = prev.map((t) => (t.id === id ? { ...t, taskStatus: 'Completed', status: 'Completed' } : t));
       setLocalCache(localKey, updated);
@@ -659,7 +659,7 @@ export function useTasks() {
   const deleteTask = async (id: string) => {
     try {
       await supabase.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setTasks((prev) => {
       const updated = prev.filter((t) => t.id !== id);
       setLocalCache(localKey, updated);
@@ -768,7 +768,7 @@ export function useCallingData() {
   const logCall = async (id: string, notes: string, outcome: string) => {
     try {
       await supabase.from('calling_data').update({ status: 'Called', notes: notes, updated_at: new Date().toISOString() }).eq('id', id);
-    } catch {}
+    } catch { }
     setCallingData((prev) => {
       const updated = prev.map((c) => (c.id === id ? { ...c, status: 'Called' } : c));
       setLocalCache(localKey, updated);

@@ -13,6 +13,7 @@ import { useAuth } from '@/shared/context/AuthContext';
 import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
 import { type Invoice } from '@/modules/Sales/invoices';
 import { fetchInvoices, createInvoice } from '@/modules/Sales/invoiceService';
+import { downloadInvoicePDF, downloadInvoicesSummaryPDF } from '@/modules/Sales/invoicePdf';
 
 const statusTones = { Paid: 'green' as const, Sent: 'brand' as const, Overdue: 'rose' as const, Draft: 'gray' as const };
 
@@ -47,6 +48,24 @@ export function InvoicesPage() {
     { key: 'tax', header: 'Tax', align: 'right', render: (i) => <span className="text-ink-600 dark:text-ink-300">PKR {i.tax.toLocaleString()}</span> },
     { key: 'total', header: 'Total', align: 'right', render: (i) => <span className="font-semibold">PKR {i.total.toLocaleString()}</span> },
     { key: 'status', header: 'Status', render: (i) => <Badge tone={statusTones[i.status] || 'gray'}>{i.status}</Badge> },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'center',
+      render: (i) => (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={(e) => {
+            e.stopPropagation();
+            downloadInvoicePDF(i);
+          }}
+          className="gap-1 px-2.5 py-1 text-xs font-semibold hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-brand-950/40"
+        >
+          <Download className="h-3.5 w-3.5 text-brand-600 dark:text-brand-400" /> Download PDF
+        </Button>
+      ),
+    },
   ];
 
   const totalPaid = displayInvoices.filter((i) => i.status === 'Paid').reduce((a, i) => a + i.total, 0);
@@ -56,11 +75,23 @@ export function InvoicesPage() {
   return (
     <div className="space-y-6">
       <PageHeader title="Invoice Management" subtitle="Generate, preview, and track invoices with Supabase integration.">
-        {canCreate && (
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" /> Create Invoice
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {displayInvoices.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => downloadInvoicePDF(displayInvoices[0])}
+              className="gap-1.5 font-semibold"
+            >
+              <Download className="h-4 w-4 text-brand-600 dark:text-brand-400" /> Download PDF Invoice
+            </Button>
+          )}
+          {canCreate && (
+            <Button size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" /> Create Invoice
+            </Button>
+          )}
+        </div>
       </PageHeader>
 
       {!hasAccess && <AccessPendingBanner />}
