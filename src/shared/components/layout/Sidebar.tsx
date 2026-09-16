@@ -74,6 +74,9 @@ function SidebarContent({
   const { role } = useAuth();
   const { isSuperAdmin, permissions } = useDataAccess();
 
+  const cleanRole = (role || '').toLowerCase().trim();
+  const isSalesOrStaff = cleanRole === 'sales' || cleanRole === 'staff' || cleanRole === 'agent';
+
   const moduleKeyMap: Record<string, string> = {
     '/': 'dashboard',
     '/reports': 'reports',
@@ -83,6 +86,7 @@ function SidebarContent({
     '/tasks': 'tasks_followups',
     '/smart-followup': 'smart_followup_ai',
     '/pos': 'pos',
+    '/sales-deals': 'pos',
     '/orders': 'orders',
     '/invoices': 'invoices',
     '/payments': 'payments',
@@ -103,11 +107,11 @@ function SidebarContent({
       return isSuperAdmin;
     }
     if (n.path === '/overview/team-management' || n.path === '/team-management') {
-      return true;
+      return !isSalesOrStaff && (isSuperAdmin || cleanRole === 'admin' || cleanRole === 'shop_admin');
     }
     if (isSuperAdmin) return true;
     const key = moduleKeyMap[n.path];
-    if (!key) return true;
+    if (!key) return false;
     const flags = getCrudFlags(permissions, key);
     return flags.access;
   });

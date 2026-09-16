@@ -1,203 +1,281 @@
-import { useState } from 'react';
-import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, Plus, Loader2, AlertCircle, Phone } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { PageHeader } from '@/shared/components/ui/PageHeader';
-import { Card, CardHeader } from '@/shared/components/ui/Card';
-import { Table, type Column } from '@/shared/components/ui/Table';
-import { Button } from '@/shared/components/ui/Button';
-import { Modal } from '@/shared/components/ui/Modal';
-import { AccessPendingBanner } from '@/shared/components/AccessPendingBanner';
+import { useState, useEffect } from 'react';
+import {
+  Phone,
+  PhoneCall,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCw,
+  Upload,
+  UserCheck,
+  Shield,
+} from 'lucide-react';
+import { useAuth } from '@/shared/context/AuthContext';
 import { useDataAccess } from '@/shared/hooks/useDataAccess';
-import { useCallingData, type ApiCallingData } from '@/modules/CRM/useCrmApi';
+import { AccessPendingBanner } from '@/shared/components/AccessPendingBanner';
+import { useCallingDataStore } from './CallingData/useCallingDataStore';
+import { AllNumbers } from './CallingData/AllNumbers';
+import { ActiveCalls } from './CallingData/ActiveCalls';
+import { TrialPage } from './CallingData/TrialPage';
+import { DeniedPage } from './CallingData/DeniedPage';
+import { RenewalPage } from './CallingData/RenewalPage';
+import { ImportLeads } from './CallingData/ImportLeads';
+import { CallLogModal } from './CallingData/shared/CallLogModal';
+import { AllocateModal } from './CallingData/shared/AllocateModal';
+import { ImportNumbersModal } from './CallingData/shared/ImportNumbersModal';
+import type { CallingNumber } from './CallingData/types';
 
-const inputCls = 'h-10 w-full rounded-xl border border-ink-200 bg-ink-50 px-3 text-sm text-ink-800 placeholder-ink-400 transition-all focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-100';
+export type SubTab = 'all' | 'active' | 'trial' | 'denied' | 'renewal' | 'import';
 
 export function CallsPage() {
-  const { hasAccess, canCreate } = useDataAccess('calling_data');
-  const { callingData, loading, error, addNumber, refetch } = useCallingData();
-  const [modalOpen, setModalOpen] = useState(false);
+  const { hasAccess } = useDataAccess('calling_data');
+  const { user, profile } = useAuth();
+  const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
+  const userRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
+  const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || userRole === 'super_admin';
+  const isSalesOrStaff = userRole === 'sales' || userRole === 'staff' || userRole === 'agent';
+  const isAdmin = !isSalesOrStaff && (isSuperAdmin || userRole === 'admin' || userRole === 'shop_admin' || currentUserEmail.includes('admin'));
 
-  const displayData = hasAccess ? callingData : [];
+  const store = useCallingDataStore();
+  const [activeTab, setActiveTab] = useState<SubTab>('all');
 
-  const columns: Column<ApiCallingData>[] = [
-    {
-      key: 'phone',
-      header: 'Phone Number',
-      render: (c) => (
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 dark:bg-brand-500/10">
-            <Phone className="h-4 w-4 text-brand-600 dark:text-brand-400" />
-          </div>
-          <div>
-            <p className="font-medium text-ink-900 dark:text-ink-50">{c.phoneNumber}</p>
-            {c.contactName && <p className="text-xs text-ink-400">{c.contactName}</p>}
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (c) => {
-        const status = c.status || 'Available';
-        const color = status === 'Called' ? 'text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10'
-          : status === 'Assigned' ? 'text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10'
-          : 'text-brand-600 bg-brand-50 dark:text-brand-400 dark:bg-brand-500/10';
-        return <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${color}`}>{status}</span>;
-      },
-    },
-    {
-      key: 'notes',
-      header: 'Notes',
-      render: (c) => <span className="text-xs text-ink-500">{c.notes || '�'}</span>,
-    },
-    {
-      key: 'expires',
-      header: 'Expires',
-      render: (c) => (
-        <span className="text-xs text-ink-400">
-          {c.expiresAt ? new Date(c.expiresAt).toLocaleDateString() : '�'}
-        </span>
-      ),
-    },
-    {
-      key: 'added',
-      header: 'Added',
-      render: (c) => <span className="text-xs text-ink-400">{new Date(c.createdAt).toLocaleDateString()}</span>,
-    },
+  // If user is sales or staff, permanently lock them to Agent mode with their own identity
+  useEffect(() => {
+    if (isSalesOrStaff) {
+      const matchAgent = store.agents.find(a => a.email.toLowerCase() === currentUserEmail || a.id === user?.id);
+      const targetId = matchAgent ? matchAgent.id : (user?.id || 'agent-1');
+      store.setRoleMode('Agent', targetId);
+    }
+  }, [isSalesOrStaff, currentUserEmail, user?.id, store.agents]);
+
+  // Modals state
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [selectedNumForLog, setSelectedNumForLog] = useState<CallingNumber | null>(null);
+  const [allocateModalOpen, setAllocateModalOpen] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadModalTab, setUploadModalTab] = useState<'single' | 'bulk'>('single');
+
+  const handleOpenLogModal = (num: CallingNumber) => {
+    setSelectedNumForLog(num);
+    setLogModalOpen(true);
+  };
+
+  const handleQuickLog = () => {
+    const target = store.numbers.find(n => n.status === 'Allocated') || store.numbers[0];
+    setSelectedNumForLog(target || null);
+    setLogModalOpen(true);
+  };
+
+  const navTabs: { id: SubTab; label: string; icon: any; badge?: number }[] = [
+    { id: 'all', label: 'All Numbers', icon: Phone, badge: store.numbers.length },
+    { id: 'active', label: 'Active Calls', icon: Clock },
+    { id: 'trial', label: 'Trial', icon: CheckCircle2, badge: store.leads.filter(l => l.status === 'Trial').length },
+    { id: 'denied', label: 'Denied', icon: AlertTriangle, badge: store.leads.filter(l => l.status === 'Denied').length },
+    { id: 'renewal', label: 'Renewal', icon: RefreshCw, badge: store.leads.filter(l => l.status === 'Renewal').length },
+    { id: 'import', label: 'Import Leads', icon: Upload, badge: store.importedLeads.filter(i => i.status === 'Pending').length },
   ];
 
-  if (loading) {
+  if (!hasAccess) {
     return (
-      <div className="flex h-64 items-center justify-center gap-2 text-ink-400">
-        <Loader2 className="h-5 w-5 animate-spin" />
-        <span className="text-sm">Loading calling data...</span>
+      <div className="space-y-6">
+        <div className="flex items-center gap-2.5 rounded-2xl border border-ink-200/80 bg-white p-5 shadow-xs dark:border-ink-800 dark:bg-ink-900">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+            <PhoneCall className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold text-ink-900 dark:text-ink-50">Calling Data Management System</h1>
+            <p className="text-xs text-ink-500">Manage calling pool, log calls, create leads automatically, and track status movement across sales stages.</p>
+          </div>
+        </div>
+        <AccessPendingBanner title="Calling Data Access Required" subtitle="You do not have permission to view or manage Calling Data. Please contact your Super Admin to grant you access." />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader title="Calling Data" subtitle="Track and manage all your calling numbers.">
-        {canCreate && (
-          <Button size="sm" onClick={() => setModalOpen(true)}>
-            <Plus className="h-4 w-4" /> Add Number
-          </Button>
-        )}
-      </PageHeader>
-
-      {!hasAccess && <AccessPendingBanner />}
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-400">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-          <button onClick={refetch} className="ml-auto underline">Retry</button>
+    <div className="space-y-5">
+      {/* Top Main Header Card */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-ink-200/80 bg-white p-5 shadow-xs dark:border-ink-800 dark:bg-ink-900">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+              <PhoneCall className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-extrabold text-ink-900 dark:text-ink-50">Calling Data Management System</h1>
+              <p className="text-xs text-ink-500">Manage calling pool, log calls, create leads automatically, and track status movement across sales stages.</p>
+            </div>
+          </div>
         </div>
-      )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[
-          { label: 'Total Numbers', value: displayData.length, icon: Phone, color: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400' },
-          { label: 'Available', value: displayData.filter(d => d.status === 'Available' || !d.status).length, icon: PhoneIncoming, color: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' },
-          { label: 'Assigned', value: displayData.filter(d => d.status === 'Assigned').length, icon: PhoneOutgoing, color: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400' },
-          { label: 'Called', value: displayData.filter(d => d.status === 'Called').length, icon: PhoneMissed, color: 'bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-400' },
-        ].map((stat, i) => (
-          <motion.div key={stat.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
-            <Card className="p-4">
-              <div className="flex items-center gap-3">
-                <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${stat.color}`}>
-                  <stat.icon className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs text-ink-400">{stat.label}</p>
-                  <p className="text-2xl font-bold text-ink-900 dark:text-ink-50">{stat.value}</p>
-                </div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
+        {/* Header Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {isAdmin && store.roleMode === 'Admin' && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setUploadModalTab('bulk');
+                  setUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ink-200 bg-ink-50 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-200"
+              >
+                <Upload className="h-3.5 w-3.5" /> CSV Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUploadModalTab('single');
+                  setUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ink-200 bg-ink-50 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-100 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-200"
+              >
+                <Phone className="h-3.5 w-3.5" /> Add Number
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllocateModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-300"
+              >
+                <UserCheck className="h-3.5 w-3.5" /> Allocate Pool
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleQuickLog}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-brand-600 px-3.5 py-2 text-xs font-bold text-white shadow-sm hover:bg-brand-700 active:scale-95 transition-all"
+          >
+            <PhoneCall className="h-3.5 w-3.5" /> Log Call
+          </button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader title="Calling Numbers" subtitle={`${displayData.length} numbers total`} />
-        <div className="pt-3">
-          <Table
-            columns={columns}
-            data={displayData}
-            rowKey={(c) => c.id}
-            emptyText={hasAccess ? 'No calling numbers yet. Click "Add Number" to get started.' : 'Data access restricted.'}
-          />
+      {/* Role Perspective Selector Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-brand-200/60 bg-brand-50/40 p-3 dark:border-brand-500/20 dark:bg-brand-500/5">
+        <div className="flex items-center gap-2 text-xs font-semibold text-ink-600 dark:text-ink-300">
+          <Shield className="h-4 w-4 text-brand-600" />
+          <span>Role View Perspective:</span>
+          <span className="rounded-md bg-white px-2 py-0.5 font-bold text-brand-700 shadow-2xs dark:bg-ink-800 dark:text-brand-300">
+            {store.roleMode === 'Admin' ? `👑 Admin (${store.numbers.length} Numbers)` : `👤 ${store.currentAgent.name} (${store.numbers.length} Numbers)`}
+          </span>
         </div>
-      </Card>
 
-      <AddNumberModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSubmit={async (data) => {
-          await addNumber(data);
-          setModalOpen(false);
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <select
+              value={store.roleMode === 'Admin' ? 'admin_view' : store.currentAgentId || ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'admin_view') {
+                  store.setRoleMode('Admin');
+                } else {
+                  store.setRoleMode('Agent', val);
+                }
+              }}
+              className="rounded-lg border border-brand-200/80 bg-white px-3 py-1.5 text-xs font-bold text-ink-700 shadow-xs outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 dark:border-brand-500/30 dark:bg-ink-800 dark:text-ink-200"
+            >
+              <option value="admin_view">👑 Admin View</option>
+              {store.agents.length > 0 && (
+                <optgroup label="Sales Agents & Staff">
+                  {store.agents.map((ag) => (
+                    <option key={ag.id} value={ag.id}>
+                      👤 {ag.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            {store.agents.length === 0 && (
+              <span className="text-[11px] text-ink-400 italic px-2">No Sales Agents added yet</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Clean 9 Sub-Tabs Navigation */}
+      <div className="flex flex-wrap gap-2 rounded-2xl border border-ink-200/60 bg-white p-2 shadow-2xs dark:border-ink-800 dark:bg-ink-900">
+        {navTabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${isActive
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'text-ink-600 hover:bg-ink-100 hover:text-ink-900 dark:text-ink-400 dark:hover:bg-ink-800 dark:hover:text-ink-100'
+                }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span>{tab.label}</span>
+              {tab.badge !== undefined && tab.badge > 0 && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${isActive ? 'bg-white/20 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'
+                    }`}
+                >
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Active Tab View */}
+      {activeTab === 'all' && (
+        <AllNumbers store={store} onLogCall={handleOpenLogModal} />
+      )}
+
+      {activeTab === 'active' && (
+        <ActiveCalls store={store} onLogCall={handleOpenLogModal} />
+      )}
+
+      {activeTab === 'trial' && (
+        <TrialPage store={store} />
+      )}
+
+      {activeTab === 'denied' && (
+        <DeniedPage store={store} />
+      )}
+
+      {activeTab === 'renewal' && (
+        <RenewalPage store={store} onLogCall={handleOpenLogModal} />
+      )}
+
+      {activeTab === 'import' && (
+        <ImportLeads store={store} />
+      )}
+
+      {/* Modals */}
+      <CallLogModal
+        open={logModalOpen}
+        onClose={() => setLogModalOpen(false)}
+        targetNumber={selectedNumForLog}
+        availableNumbers={store.numbers}
+        onSubmit={(payload) => {
+          store.logCall(payload);
+        }}
+      />
+
+      <AllocateModal
+        open={allocateModalOpen}
+        onClose={() => setAllocateModalOpen(false)}
+        agents={store.agents}
+        availableCount={store.allNumbers.filter(n => n.status === 'Available').length || store.allNumbers.length}
+        onAllocate={(selectedIds, count) => {
+          store.allocateNumbersToAgents(selectedIds, count);
+        }}
+      />
+
+      <ImportNumbersModal
+        open={uploadModalOpen}
+        initialTab={uploadModalTab}
+        onClose={() => setUploadModalOpen(false)}
+        onUpload={(numbersList) => {
+          store.uploadNumbers(numbersList);
         }}
       />
     </div>
-  );
-}
-
-function AddNumberModal({ open, onClose, onSubmit }: {
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (data: { phoneNumber: string; contactName?: string; notes?: string }) => Promise<void>;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setFormError('');
-    setSaving(true);
-    const fd = new FormData(e.currentTarget);
-    try {
-      await onSubmit({
-        phoneNumber: fd.get('phoneNumber') as string,
-        contactName: fd.get('contactName') as string || undefined,
-        notes: fd.get('notes') as string || undefined,
-      });
-    } catch (err: any) {
-      setFormError(err.message || 'Failed to add number');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="Add Calling Number" subtitle="Add a new phone number to your calling list.">
-      <form onSubmit={handleSubmit}>
-        <div className="grid grid-cols-1 gap-4">
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink-500">Phone Number</label>
-            <input name="phoneNumber" type="tel" className={inputCls} placeholder="+92 300 1234567" required />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink-500">Contact Name (optional)</label>
-            <input name="contactName" className={inputCls} placeholder="Sara Ahmed" />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-xs font-medium text-ink-500">Notes (optional)</label>
-            <textarea name="notes" className={inputCls + ' h-20 resize-none py-2'} placeholder="Any notes about this number..." />
-          </div>
-        </div>
-
-        {formError && (
-          <p className="mt-3 flex items-center gap-1.5 text-sm text-rose-600"><AlertCircle className="h-4 w-4" />{formError}</p>
-        )}
-
-        <div className="mt-6 flex justify-end gap-3 border-t border-ink-200 pt-4 dark:border-ink-800">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button type="submit" size="sm" disabled={saving}>
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin" />Saving...</> : 'Add Number'}
-          </Button>
-        </div>
-      </form>
-    </Modal>
   );
 }

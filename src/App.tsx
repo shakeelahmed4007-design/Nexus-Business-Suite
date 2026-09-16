@@ -16,6 +16,7 @@ import { CallsPage } from '@/modules/CRM/CallsPage';
 import { TasksPage } from '@/modules/CRM/TasksPage';
 import { SmartFollowupPage } from '@/modules/CRM/SmartFollowupPage';
 import { PosPage } from '@/modules/Sales/PosPage';
+import { SalesDealsPage } from '@/modules/Sales/SalesDealsPage';
 import { OrdersPage } from '@/modules/Sales/OrdersPage';
 import { InvoicesPage } from '@/modules/Sales/InvoicesPage';
 import { PaymentsPage } from '@/modules/Sales/PaymentsPage';
@@ -59,11 +60,7 @@ function App() {
               }
             />
 
-            {/* Sales / Staff Route fallback */}
-            <Route
-              path="/sales"
-              element={<Navigate to="/" replace />}
-            />
+            {/* Staff Route fallback */}
             <Route
               path="/staff"
               element={<Navigate to="/" replace />}
@@ -84,6 +81,8 @@ function App() {
                       <Route path="/tasks" element={<TasksPage />} />
                       <Route path="/smart-followup" element={<SmartFollowupPage />} />
                       <Route path="/pos" element={<PosPage />} />
+                      <Route path="/sales-deals" element={<SalesDealsPage />} />
+                      <Route path="/sales" element={<SalesDealsPage />} />
                       <Route path="/orders" element={<OrdersPage />} />
                       <Route path="/invoices" element={<InvoicesPage />} />
                       <Route path="/payments" element={<PaymentsPage />} />

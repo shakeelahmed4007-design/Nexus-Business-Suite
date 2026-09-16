@@ -360,8 +360,8 @@ export function AddTeamMemberModal({
                 setSuccessMsg(null);
               }}
               className={`flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-semibold transition-colors ${activeTab === 'add'
-                  ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
-                  : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
+                ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
                 }`}
             >
               <UserPlus className="h-4 w-4" />
@@ -374,8 +374,8 @@ export function AddTeamMemberModal({
                 setSuccessMsg(null);
               }}
               className={`flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-semibold transition-colors ${activeTab === 'manage'
-                  ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
-                  : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
+                ? 'border-brand-600 text-brand-600 dark:border-brand-400 dark:text-brand-400'
+                : 'border-transparent text-ink-500 hover:text-ink-800 dark:text-ink-400 dark:hover:text-ink-200'
                 }`}
             >
               <Users className="h-4 w-4" />
@@ -589,10 +589,10 @@ export function AddTeamMemberModal({
                                       <div
                                         key={subItem.key}
                                         className={`flex flex-col gap-2 rounded-xl border p-2.5 transition-all sm:flex-row sm:items-center sm:justify-between ${!isAllowedForAdmin
-                                            ? 'border-ink-200/60 bg-ink-100/40 opacity-60 dark:border-ink-800 dark:bg-ink-950/40'
-                                            : flags.access
-                                              ? 'border-brand-500/40 bg-brand-50/40 dark:border-brand-500/30 dark:bg-brand-500/10'
-                                              : 'border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950'
+                                          ? 'border-ink-200/60 bg-ink-100/40 opacity-60 dark:border-ink-800 dark:bg-ink-950/40'
+                                          : flags.access
+                                            ? 'border-brand-500/40 bg-brand-50/40 dark:border-brand-500/30 dark:bg-brand-500/10'
+                                            : 'border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-950'
                                           }`}
                                       >
                                         <div className="flex items-center gap-2.5">
@@ -618,8 +618,8 @@ export function AddTeamMemberModal({
                                             <label
                                               onClick={() => handleToggleAction(catName, subItem.key, 'can_create')}
                                               className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all ${flags.can_create
-                                                  ? 'border-brand-400 bg-brand-100 text-brand-800 dark:bg-brand-500/20 dark:text-brand-300'
-                                                  : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                                ? 'border-brand-400 bg-brand-100 text-brand-800 dark:bg-brand-500/20 dark:text-brand-300'
+                                                : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                                 }`}
                                             >
                                               <PlusCircle className="h-3 w-3" /> Create
@@ -628,8 +628,8 @@ export function AddTeamMemberModal({
                                             <label
                                               onClick={() => handleToggleAction(catName, subItem.key, 'can_edit')}
                                               className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all ${flags.can_edit
-                                                  ? 'border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-300'
-                                                  : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                                ? 'border-amber-400 bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-300'
+                                                : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                                 }`}
                                             >
                                               <Pencil className="h-3 w-3" /> Edit
@@ -638,8 +638,8 @@ export function AddTeamMemberModal({
                                             <label
                                               onClick={() => handleToggleAction(catName, subItem.key, 'can_delete')}
                                               className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold transition-all ${flags.can_delete
-                                                  ? 'border-rose-400 bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300'
-                                                  : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                                ? 'border-rose-400 bg-rose-100 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300'
+                                                : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                                 }`}
                                             >
                                               <Trash2 className="h-3 w-3" /> Delete
@@ -707,8 +707,8 @@ export function AddTeamMemberModal({
                             <td className="px-4 py-3">
                               <span
                                 className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${u.role === 'sales'
-                                    ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
-                                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                  ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
+                                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                                   }`}
                               >
                                 {u.role === 'sales' ? 'Sales Member' : 'Staff Member'}
@@ -874,8 +874,8 @@ export function AddTeamMemberModal({
                                     <label
                                       onClick={() => handleEditActionToggle('can_create')}
                                       className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_create
-                                          ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300'
-                                          : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                        ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300'
+                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                         }`}
                                     >
                                       Create
@@ -883,8 +883,8 @@ export function AddTeamMemberModal({
                                     <label
                                       onClick={() => handleEditActionToggle('can_edit')}
                                       className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_edit
-                                          ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
-                                          : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                        ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
+                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                         }`}
                                     >
                                       Edit
@@ -892,8 +892,8 @@ export function AddTeamMemberModal({
                                     <label
                                       onClick={() => handleEditActionToggle('can_delete')}
                                       className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_delete
-                                          ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                                          : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                        ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                         }`}
                                     >
                                       Delete

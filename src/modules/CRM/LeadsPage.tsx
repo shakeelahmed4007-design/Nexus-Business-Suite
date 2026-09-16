@@ -107,48 +107,53 @@ function KanbanView({ leads, canEdit, canDelete, onDelete, onStatusChange }: {
             </div>
             <div className="space-y-3 min-h-[120px]">
               {stageLeads.length > 0 ? (
-                stageLeads.map((lead, i) => (
-                  <motion.div
-                    key={lead.id}
-                    initial={{ opacity: 0, y: 12 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: i * 0.05 }}
-                    whileHover={{ y: -3, scale: 1.02 }}
-                    className="cursor-pointer rounded-xl border border-ink-200 bg-white p-4 shadow-card transition-shadow hover:shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400">
-                        {`${lead.firstName[0]}${lead.lastName[0]}`}
+                stageLeads.map((lead, i) => {
+                  const initialFirst = lead.firstName?.[0] || '';
+                  const initialLast = lead.lastName?.[0] || '';
+                  const avatarText = (initialFirst || initialLast) ? `${initialFirst}${initialLast}`.toUpperCase() : 'L';
+                  return (
+                    <motion.div
+                      key={lead.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.05 }}
+                      whileHover={{ y: -3, scale: 1.02 }}
+                      className="cursor-pointer rounded-xl border border-ink-200 bg-white p-4 shadow-card transition-shadow hover:shadow-card-lg dark:border-ink-800 dark:bg-ink-900"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400">
+                          {avatarText}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {canEdit && (
+                            <select
+                              value={lead.leadStatus || 'New'}
+                              onChange={(e) => { e.stopPropagation(); onStatusChange(lead.id, e.target.value); }}
+                              className="rounded border border-ink-200 bg-transparent px-1 text-[10px] text-ink-500 dark:border-ink-700"
+                            >
+                              {LEAD_STATUSES.map((s) => <option key={s}>{s}</option>)}
+                            </select>
+                          )}
+                          {canDelete && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); if (confirm('Delete this lead?')) onDelete(lead.id); }}
+                              className="rounded p-1 text-ink-400 hover:text-rose-600"
+                              title="Delete Lead"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        {canEdit && (
-                          <select
-                            value={lead.leadStatus || 'New'}
-                            onChange={(e) => { e.stopPropagation(); onStatusChange(lead.id, e.target.value); }}
-                            className="rounded border border-ink-200 bg-transparent px-1 text-[10px] text-ink-500 dark:border-ink-700"
-                          >
-                            {LEAD_STATUSES.map((s) => <option key={s}>{s}</option>)}
-                          </select>
-                        )}
-                        {canDelete && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); if (confirm('Delete this lead?')) onDelete(lead.id); }}
-                            className="rounded p-1 text-ink-400 hover:text-rose-600"
-                            title="Delete Lead"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                      <p className="mt-3 text-sm font-semibold text-ink-900 dark:text-ink-50">{lead.firstName} {lead.lastName}</p>
+                      <p className="text-xs text-ink-500 dark:text-ink-400">{lead.companyName || '—'}</p>
+                      <div className="mt-3 flex items-center justify-between">
+                        <span className="text-sm font-bold text-brand-600 dark:text-brand-400">PKR {((lead.leadValue || 0) / 1000).toFixed(0)}K</span>
+                        <span className="text-xs text-ink-400">{lead.leadSource || '—'}</span>
                       </div>
-                    </div>
-                    <p className="mt-3 text-sm font-semibold text-ink-900 dark:text-ink-50">{lead.firstName} {lead.lastName}</p>
-                    <p className="text-xs text-ink-500 dark:text-ink-400">{lead.companyName || '�'}</p>
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className="text-sm font-bold text-brand-600 dark:text-brand-400">PKR {((lead.leadValue || 0) / 1000).toFixed(0)}K</span>
-                      <span className="text-xs text-ink-400">{lead.leadSource || '�'}</span>
-                    </div>
-                  </motion.div>
-                ))
+                    </motion.div>
+                  );
+                })
               ) : (
                 <div className="rounded-xl border border-dashed border-ink-200 p-4 text-center text-xs text-ink-400 dark:border-ink-800">
                   No leads in stage
@@ -172,17 +177,22 @@ function TableView({ leads, canEdit, canDelete, onDelete }: {
     {
       key: 'name',
       header: 'Lead',
-      render: (l) => (
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400">
-            {`${l.firstName[0]}${l.lastName[0]}`}
+      render: (l) => {
+        const initialFirst = l.firstName?.[0] || '';
+        const initialLast = l.lastName?.[0] || '';
+        const avatarText = (initialFirst || initialLast) ? `${initialFirst}${initialLast}`.toUpperCase() : 'L';
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-50 text-xs font-bold text-brand-600 dark:bg-brand-500/10 dark:text-brand-400">
+              {avatarText}
+            </div>
+            <div>
+              <p className="font-medium text-ink-900 dark:text-ink-50">{l.firstName} {l.lastName}</p>
+              <p className="text-xs text-ink-400">{l.companyName || '—'}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-medium text-ink-900 dark:text-ink-50">{l.firstName} {l.lastName}</p>
-            <p className="text-xs text-ink-400">{l.companyName || '�'}</p>
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       key: 'contact',
@@ -196,8 +206,8 @@ function TableView({ leads, canEdit, canDelete, onDelete }: {
     },
     { key: 'leadValue', header: 'Value', align: 'right', render: (l) => <span className="font-semibold text-ink-900 dark:text-ink-50">PKR {(l.leadValue || 0).toLocaleString()}</span> },
     { key: 'leadStatus', header: 'Stage', render: (l) => <Badge tone={stageTones[l.leadStatus || 'New']}>{l.leadStatus || 'New'}</Badge> },
-    { key: 'leadSource', header: 'Source', render: (l) => <span className="text-xs">{l.leadSource || '�'}</span> },
-    { key: 'priority', header: 'Priority', render: (l) => <span className="text-xs text-ink-500">{l.priority || '�'}</span> },
+    { key: 'leadSource', header: 'Source', render: (l) => <span className="text-xs">{l.leadSource || '—'}</span> },
+    { key: 'priority', header: 'Priority', render: (l) => <span className="text-xs text-ink-500">{l.priority || '—'}</span> },
     {
       key: 'actions',
       header: 'Actions',
@@ -220,7 +230,7 @@ function TableView({ leads, canEdit, canDelete, onDelete }: {
 
   return (
     <Card>
-      <Table columns={columns} data={leads} rowKey={(l) => l.id} emptyText="No leads yet. Click 'Add Lead' to create your first one." />
+      <Table columns={columns} data={leads} rowKey={(l) => l.id} empty="No leads yet. Click 'Add Lead' to create your first one." />
     </Card>
   );
 }

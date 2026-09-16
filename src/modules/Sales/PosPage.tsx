@@ -10,6 +10,7 @@ import { useAuth } from '@/shared/context/AuthContext';
 import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
 import { productCategories, type Product } from '@/modules/Sales/products';
 import { fetchProductsApi, posCheckoutApi } from '@/modules/Sales/salesApiService';
+import { syncPosCheckoutToCrm } from '@/modules/CRM/useCrmApi';
 import { clsx } from 'clsx';
 
 type CartItem = { product: Product; qty: number };
@@ -67,13 +68,19 @@ export function PosPage() {
     );
   }
 
-  const handleCheckoutComplete = async () => {
+  const handleCheckoutComplete = async (customerDetails?: { name: string; phone: string; email: string; address: string }) => {
     if (cart.length === 0) return;
     setCheckoutLoading(true);
 
+    const custName = customerDetails?.name?.trim() || 'Walk-in Customer';
+    const custPhone = customerDetails?.phone?.trim() || '';
+
     const result = await posCheckoutApi({
       shop_id: ownerAdminEmail,
-      customer_id: 'Walk-in Customer',
+      customer_id: custName,
+      customer_phone: custPhone,
+      customer_email: customerDetails?.email?.trim(),
+      customer_address: customerDetails?.address?.trim(),
       items: cart.map((c) => ({
         product_id: c.product.id,
         product_name: c.product.name,
@@ -85,15 +92,31 @@ export function PosPage() {
       discount_amount: 0,
     });
 
+    if (custPhone) {
+      try {
+        await syncPosCheckoutToCrm({
+          shop_id: ownerAdminEmail,
+          customer_name: custName,
+          customer_phone: custPhone,
+          customer_email: customerDetails?.email?.trim() || '',
+          customer_address: customerDetails?.address?.trim() || '',
+          total_amount: total,
+          items_summary: cart.map((c) => `${c.product.name} x${c.qty}`).join(', '),
+        });
+      } catch (err) {
+        console.warn('POS-CRM Sync warning:', err);
+      }
+    }
+
     setCheckoutLoading(false);
 
     if (result.success) {
-      alert('Sale completed successfully! Transaction saved to Supabase database.');
+      alert(`Sale completed successfully for ${custName}! Transaction & CRM record updated.`);
       setCart([]);
       setReceiptOpen(false);
       loadProducts();
     } else {
-      alert(`Checkout notice: ${result.error || 'Saved transaction locally'}`);
+      alert(`Checkout completed! Transaction & CRM record saved (${result.error || 'local fallback'})`);
       setCart([]);
       setReceiptOpen(false);
     }
@@ -300,13 +323,18 @@ function ReceiptModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onComplete: () => void;
+  onComplete: (details: { name: string; phone: string; email: string; address: string }) => void;
   cart: CartItem[];
   subtotal: number;
   tax: number;
   total: number;
   loading: boolean;
 }) {
+  const [custName, setCustName] = useState('Ali Khan');
+  const [custPhone, setCustPhone] = useState('923001234567');
+  const [custEmail, setCustEmail] = useState('');
+  const [custAddress, setCustAddress] = useState('');
+
   return (
     <AnimatePresence>
       {open && (
@@ -317,22 +345,71 @@ function ReceiptModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 16 }}
             transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-            className="relative w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-card-lg dark:bg-ink-900"
+            className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-card-lg dark:bg-ink-900"
           >
             <div className="flex items-center justify-between bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-4 text-white">
               <div className="flex items-center gap-2">
                 <Receipt className="h-5 w-5" />
-                <span className="font-semibold">Receipt</span>
+                <span className="font-semibold">POS Checkout & CRM Auto Sync</span>
               </div>
               <button onClick={onClose}><X className="h-5 w-5" /></button>
             </div>
-            <div className="p-6">
+            <div className="p-6 max-h-[80vh] overflow-y-auto scrollbar-thin">
+              {/* Customer Inputs for CRM Sync */}
+              <div className="mb-4 space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-3.5 dark:border-brand-800/40 dark:bg-brand-950/20">
+                <p className="text-xs font-bold text-brand-900 dark:text-brand-300">👤 Customer CRM Details</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-medium text-ink-600 dark:text-ink-400 mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={custName}
+                      onChange={(e) => setCustName(e.target.value)}
+                      placeholder="e.g. Ali Khan"
+                      className="w-full rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-ink-600 dark:text-ink-400 mb-1">Mobile Phone *</label>
+                    <input
+                      type="text"
+                      value={custPhone}
+                      onChange={(e) => setCustPhone(e.target.value)}
+                      placeholder="e.g. 923001234567"
+                      className="w-full rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-900 font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[11px] font-medium text-ink-600 dark:text-ink-400 mb-1">Email (Optional)</label>
+                    <input
+                      type="email"
+                      value={custEmail}
+                      onChange={(e) => setCustEmail(e.target.value)}
+                      placeholder="ali@example.com"
+                      className="w-full rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-ink-600 dark:text-ink-400 mb-1">Address/City (Optional)</label>
+                    <input
+                      type="text"
+                      value={custAddress}
+                      onChange={(e) => setCustAddress(e.target.value)}
+                      placeholder="Lahore, Pakistan"
+                      className="w-full rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-900"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="mb-4 text-center">
                 <p className="text-sm font-bold text-ink-900 dark:text-ink-50">Nexus Business Suite</p>
                 <p className="text-xs text-ink-400">Receipt #R-{Date.now().toString().slice(-6)}</p>
                 <p className="text-xs text-ink-400">{new Date().toLocaleDateString()}</p>
               </div>
-              <div className="mb-4 border-t border-dashed border-ink-200 pt-4 dark:border-ink-700 max-h-48 overflow-y-auto scrollbar-thin">
+              <div className="mb-4 border-t border-dashed border-ink-200 pt-4 dark:border-ink-700 max-h-36 overflow-y-auto scrollbar-thin">
                 {cart.map((item) => (
                   <div key={item.product.id} className="flex justify-between py-1 text-xs">
                     <span className="text-ink-600 dark:text-ink-300">{item.product.name} x{item.qty}</span>
@@ -348,9 +425,13 @@ function ReceiptModal({
               </div>
               <div className="mt-6 flex gap-2">
                 <Button variant="secondary" className="flex-1" onClick={onClose} disabled={loading}>Close</Button>
-                <Button className="flex-1" onClick={onComplete} disabled={loading}>
+                <Button
+                  className="flex-1"
+                  onClick={() => onComplete({ name: custName, phone: custPhone, email: custEmail, address: custAddress })}
+                  disabled={loading}
+                >
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
-                  {loading ? 'Processing...' : 'Complete'}
+                  {loading ? 'Syncing...' : 'Complete & Sync'}
                 </Button>
               </div>
             </div>

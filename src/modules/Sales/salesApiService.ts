@@ -22,7 +22,8 @@ export interface PosCheckoutPayload {
 // ----------------------------------------------------------------------------
 // PRODUCTS & STOCK
 // ----------------------------------------------------------------------------
-export async function fetchProductsApi(shopId: string = 'shop-001'): Promise<Product[]> {
+export async function fetchProductsApi(shopId: string = 'admin@nexus.com'): Promise<Product[]> {
+  const isSuperAdminWorkspace = (shopId || '').toLowerCase().trim() === 'admin@nexus.com' || (shopId || '').toLowerCase().trim() === 'shop-001';
   try {
     const res = await fetch(`${BACKEND_URL}/products?shop_id=${encodeURIComponent(shopId)}`);
     if (res.ok) {
@@ -40,29 +41,31 @@ export async function fetchProductsApi(shopId: string = 'shop-001'): Promise<Pro
       }
     }
 
-    // Auto-seed initial products to backend/Supabase if empty
-    await seedInitialProducts(shopId);
+    if (isSuperAdminWorkspace) {
+      // Auto-seed initial products to backend/Supabase if empty
+      await seedInitialProducts(shopId);
 
-    const reFetch = await fetch(`${BACKEND_URL}/products?shop_id=${encodeURIComponent(shopId)}`);
-    if (reFetch.ok) {
-      const json = await reFetch.json();
-      if (json.success && Array.isArray(json.products) && json.products.length > 0) {
-        return json.products.map((p: any) => ({
-          id: p.product_id || p.id,
-          sku: p.sku || p.id,
-          name: p.product_name || p.name,
-          category: p.category || 'General',
-          price: Number(p.selling_price || p.price || 0),
-          stock: Number(p.stocks?.[0]?.total_quantity ?? p.stock ?? 25),
-          emoji: p.image_url || getEmojiForCategory(p.category),
-        }));
+      const reFetch = await fetch(`${BACKEND_URL}/products?shop_id=${encodeURIComponent(shopId)}`);
+      if (reFetch.ok) {
+        const json = await reFetch.json();
+        if (json.success && Array.isArray(json.products) && json.products.length > 0) {
+          return json.products.map((p: any) => ({
+            id: p.product_id || p.id,
+            sku: p.sku || p.id,
+            name: p.product_name || p.name,
+            category: p.category || 'General',
+            price: Number(p.selling_price || p.price || 0),
+            stock: Number(p.stocks?.[0]?.total_quantity ?? p.stock ?? 25),
+            emoji: p.image_url || getEmojiForCategory(p.category),
+          }));
+        }
       }
     }
   } catch (err) {
-    console.warn('fetchProductsApi warning, returning initialProducts:', err);
+    console.warn('fetchProductsApi warning:', err);
   }
 
-  return initialProducts;
+  return isSuperAdminWorkspace ? initialProducts : [];
 }
 
 export interface CreateProductInput {
@@ -193,7 +196,8 @@ function getEmojiForCategory(cat: string): string {
 // ----------------------------------------------------------------------------
 // ORDERS
 // ----------------------------------------------------------------------------
-export async function fetchOrdersApi(shopId: string = 'shop-001'): Promise<Order[]> {
+export async function fetchOrdersApi(shopId: string = 'admin@nexus.com'): Promise<Order[]> {
+  const isSuperAdminWorkspace = (shopId || '').toLowerCase().trim() === 'admin@nexus.com' || (shopId || '').toLowerCase().trim() === 'shop-001';
   try {
     const res = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(shopId)}`);
     if (res.ok) {
@@ -213,31 +217,33 @@ export async function fetchOrdersApi(shopId: string = 'shop-001'): Promise<Order
       }
     }
 
-    // Auto-seed initial orders if empty
-    await seedInitialOrders(shopId);
+    if (isSuperAdminWorkspace) {
+      // Auto-seed initial orders if empty
+      await seedInitialOrders(shopId);
 
-    const reFetch = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(shopId)}`);
-    if (reFetch.ok) {
-      const json = await reFetch.json();
-      if (json.success && Array.isArray(json.orders) && json.orders.length > 0) {
-        return json.orders.map((o: any) => ({
-          id: o.order_id ? `ORD-${o.order_id.slice(0, 5).toUpperCase()}` : o.id,
-          raw_id: o.order_id || o.id,
-          customer: o.customer_id || o.customer || 'Walk-in Customer',
-          date: o.order_date ? new Date(o.order_date).toISOString().split('T')[0] : o.date || 'Today',
-          items: Array.isArray(o.order_items) ? o.order_items.length : Number(o.items || 1),
-          total: Number(o.total_amount || o.total || 0),
-          channel: o.order_type || o.channel || 'POS Store',
-          payment: o.payment_status === 'Paid' ? 'Paid' : (o.payment_status === 'Partial' ? 'Partial' : 'Unpaid'),
-          status: mapOrderStatus(o.status || o.order_status),
-        }));
+      const reFetch = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(shopId)}`);
+      if (reFetch.ok) {
+        const json = await reFetch.json();
+        if (json.success && Array.isArray(json.orders) && json.orders.length > 0) {
+          return json.orders.map((o: any) => ({
+            id: o.order_id ? `ORD-${o.order_id.slice(0, 5).toUpperCase()}` : o.id,
+            raw_id: o.order_id || o.id,
+            customer: o.customer_id || o.customer || 'Walk-in Customer',
+            date: o.order_date ? new Date(o.order_date).toISOString().split('T')[0] : o.date || 'Today',
+            items: Array.isArray(o.order_items) ? o.order_items.length : Number(o.items || 1),
+            total: Number(o.total_amount || o.total || 0),
+            channel: o.order_type || o.channel || 'POS Store',
+            payment: o.payment_status === 'Paid' ? 'Paid' : (o.payment_status === 'Partial' ? 'Partial' : 'Unpaid'),
+            status: mapOrderStatus(o.status || o.order_status),
+          }));
+        }
       }
     }
   } catch (err) {
     console.warn('fetchOrdersApi error:', err);
   }
 
-  return initialOrders;
+  return isSuperAdminWorkspace ? initialOrders : [];
 }
 
 async function seedInitialOrders(shopId: string) {

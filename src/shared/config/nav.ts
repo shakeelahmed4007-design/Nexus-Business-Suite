@@ -6,6 +6,7 @@ import {
   Package,
   Boxes,
   Warehouse,
+  TrendingUp,
   TrendingDown,
   CreditCard,
   BookOpen,
@@ -44,6 +45,7 @@ export const navItems: NavItem[] = [
   { label: 'Smart Follow-up AI', path: '/smart-followup', icon: Sparkles, group: 'CRM', allowedRoles: ['Admin', 'Call Agent'] },
 
   { label: 'POS', path: '/pos', icon: ShoppingCart, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
+  { label: 'Sales Deals', path: '/sales-deals', icon: TrendingUp, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Orders', path: '/orders', icon: Package, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Invoices', path: '/invoices', icon: FileText, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Payments', path: '/payments', icon: CreditCard, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },

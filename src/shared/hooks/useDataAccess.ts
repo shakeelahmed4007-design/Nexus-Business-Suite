@@ -9,8 +9,12 @@ import {
 export function useDataAccess(moduleKey?: string) {
   const { user, profile, role } = useAuth();
 
+  const email = (user?.email || profile?.email || '').toLowerCase().trim();
+  const cleanRole = (role || (user?.user_metadata?.role as string) || '').toLowerCase().trim();
+  const isSuper = cleanRole === 'super_admin' || email === 'admin@nexus.com' || email === 'superadmin@nexus.com';
+
   // Super admin always has full CRUD access to all modules
-  if (role === 'super_admin') {
+  if (isSuper) {
     return {
       hasAccess: true,
       canCreate: true,
@@ -22,7 +26,6 @@ export function useDataAccess(moduleKey?: string) {
   }
 
   // Look up admin profile or store entry by email
-  const email = user?.email || profile?.email;
   if (email) {
     const admin = getAdminByEmail(email);
     if (admin) {

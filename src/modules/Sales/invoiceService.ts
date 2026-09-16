@@ -20,7 +20,9 @@ function setLocalInvoices(key: string, data: Invoice[]) {
 
 export async function fetchInvoices(ownerAdminEmail?: string): Promise<Invoice[]> {
   const shopId = (ownerAdminEmail || 'admin@nexus.com').toLowerCase().trim();
+  const isSuperAdminWorkspace = shopId === 'admin@nexus.com';
   const localKey = `nexus_sales_invoices_${shopId}`;
+  const initialFallback = isSuperAdminWorkspace ? initialInvoices : [];
 
   // 1. Fetch from Express Backend API
   try {
@@ -77,7 +79,7 @@ export async function fetchInvoices(ownerAdminEmail?: string): Promise<Invoice[]
     console.error('Error fetching invoices from Supabase:', err);
   }
 
-  return getLocalInvoices(localKey, initialInvoices);
+  return getLocalInvoices(localKey, initialFallback);
 }
 
 export async function createInvoice(

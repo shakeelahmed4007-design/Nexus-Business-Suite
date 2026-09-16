@@ -379,6 +379,9 @@ export function getAdmins(): AdminUser[] {
 export function saveAdmins(admins: AdminUser[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(admins));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('nexus_admins_changed'));
+    }
   } catch (err) {
     console.error('Failed to save admins to storage:', err);
   }

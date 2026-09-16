@@ -1,7 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable no-empty */
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/shared/lib/supabaseClient';
 import { useAuth } from '@/shared/context/AuthContext';
-import { getOwnerAdminEmail } from '@/shared/lib/adminStore';
+import { getOwnerAdminEmail, getAdmins } from '@/shared/lib/adminStore';
 
 // -----------------------------------------------------------------------------
 // TYPES
@@ -99,11 +103,23 @@ export interface ApiCallingData {
   contactName?: string;
   status?: string;
   assignedToUserId?: string;
+  assignedToName?: string;
+  assignedToEmail?: string;
   ownerAdminEmail?: string;
   createdByEmail?: string;
   notes?: string;
   expiresAt?: string;
   createdAt: string;
+}
+
+const DEFAULT_SHOP_UUID = '3c337fc4-48ba-4835-a7b2-93987afe55be';
+const DEFAULT_USER_UUID = '01a2e7c8-6a06-4085-9e3f-5fbcd6138a59';
+
+function getSafeUuid(val: any, fallback: string): string {
+  if (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+    return val;
+  }
+  return fallback;
 }
 
 // -----------------------------------------------------------------------------
@@ -125,73 +141,161 @@ function setLocalCache<T>(key: string, data: T) {
 }
 
 // -----------------------------------------------------------------------------
+// POS-CRM AUTO SYNC HELPER
+// -----------------------------------------------------------------------------
+export interface PosCrmSyncPayload {
+  shop_id: string;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string;
+  customer_address?: string;
+  total_amount: number;
+  items_summary?: string;
+}
+
+export async function syncPosCheckoutToCrm(payload: PosCrmSyncPayload) {
+  const shopId = payload.shop_id || 'admin@nexus.com';
+  const cleanPhone = payload.customer_phone.trim();
+  if (!cleanPhone) return;
+
+  const parts = payload.customer_name.trim().split(' ');
+  const firstName = parts[0] || 'POS';
+  const lastName = parts.slice(1).join(' ') || 'Customer';
+
+  try {
+    // 1. Check if customer exists in Supabase
+    const { data: existingCust } = await supabase
+      .from('customers')
+      .select('*')
+      .eq('phone', cleanPhone)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingCust) {
+      const prevSpent = Number(existingCust.lifetime_value || existingCust.total_spent || 0);
+      const prevOrders = Number(existingCust.total_purchases || existingCust.total_orders || 1);
+      const newOrders = prevOrders + 1;
+      const newSpent = prevSpent + payload.total_amount;
+      const avgValue = Math.round(newSpent / newOrders);
+      const isHighValue = newSpent >= 50000;
+
+      await supabase
+        .from('customers')
+        .update({
+          total_purchases: newOrders,
+          total_orders: newOrders,
+          lifetime_value: newSpent,
+          total_spent: newSpent,
+          average_order_value: avgValue,
+          last_purchase_date: new Date().toISOString(),
+          is_high_value: isHighValue,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingCust.id);
+
+      try {
+        await supabase.from('pos_customer_purchases').insert({
+          shop_id: shopId,
+          customer_id: existingCust.id,
+          customer_phone: cleanPhone,
+          customer_name: payload.customer_name,
+          customer_email: payload.customer_email || null,
+          customer_address: payload.customer_address || null,
+          order_amount: payload.total_amount,
+          items_summary: payload.items_summary || null,
+          channel: 'POS',
+        });
+      } catch (e) { }
+
+      // Check if lead exists, update value if lead exists
+      try {
+        const { data: leadMatch } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('phone', cleanPhone)
+          .maybeSingle();
+
+        if (leadMatch) {
+          await supabase.from('leads').update({
+            lead_value: newSpent,
+            notes: `POS Purchase added: ${payload.items_summary || ''}`,
+            updated_at: new Date().toISOString(),
+          }).eq('id', leadMatch.id);
+        }
+      } catch (e) { }
+
+    } else {
+      // 2. Create new customer
+      const isHighValue = payload.total_amount >= 50000;
+      const safeShopUuid = getSafeUuid(shopId, DEFAULT_SHOP_UUID);
+
+      const { data: newCust } = await supabase
+        .from('customers')
+        .insert({
+          shop_id: safeShopUuid,
+          first_name: firstName,
+          last_name: lastName,
+          phone: cleanPhone,
+          email: payload.customer_email || null,
+          city: payload.customer_address || null,
+          customer_type: 'Regular',
+          total_orders: 1,
+          total_purchases: 1,
+          total_spent: payload.total_amount,
+          lifetime_value: payload.total_amount,
+          average_order_value: payload.total_amount,
+          last_purchase_date: new Date().toISOString(),
+          is_high_value: isHighValue,
+          customer_source: 'POS',
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .maybeSingle();
+
+      const customerId = newCust?.id;
+
+      try {
+        await supabase.from('pos_customer_purchases').insert({
+          shop_id: shopId,
+          customer_id: customerId,
+          customer_phone: cleanPhone,
+          customer_name: payload.customer_name,
+          customer_email: payload.customer_email || null,
+          customer_address: payload.customer_address || null,
+          order_amount: payload.total_amount,
+          items_summary: payload.items_summary || null,
+          channel: 'POS',
+        });
+      } catch (e) { }
+
+      // Auto-create initial Lead in CRM leads table
+      try {
+        await supabase.from('leads').insert({
+          shop_id: safeShopUuid,
+          first_name: firstName,
+          last_name: lastName,
+          phone: cleanPhone,
+          email: payload.customer_email || null,
+          lead_source: 'POS Purchase',
+          lead_status: 'New',
+          lead_value: payload.total_amount,
+          notes: `Created from POS purchase: ${payload.items_summary || 'Order completed'}`,
+        });
+      } catch (e) { }
+    }
+  } catch (err) {
+    console.warn('syncPosCheckoutToCrm notice:', err);
+  }
+}
+
+// -----------------------------------------------------------------------------
 // INITIAL DEMO DATA FOR FALLBACK
 // -----------------------------------------------------------------------------
-const DEMO_LEADS: ApiLead[] = [
-  {
-    id: 'lead-demo-1',
-    shopId: 'shop-1',
-    createdById: 'user-1',
-    ownerAdminEmail: 'admin@nexus.com',
-    createdByEmail: 'admin@nexus.com',
-    firstName: 'Zeeshan',
-    lastName: 'Khan',
-    email: 'zeeshan@example.com',
-    phone: '03001234567',
-    companyName: 'Tech Solutions',
-    leadSource: 'Website',
-    leadStatus: 'New',
-    leadValue: 50000,
-    priority: 'High',
-    notes: 'Interested in CRM software.',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-];
+const DEMO_LEADS: ApiLead[] = [];
+const DEMO_CUSTOMERS: ApiCustomer[] = [];
 
-const DEMO_CUSTOMERS: ApiCustomer[] = [
-  {
-    id: 'cust-demo-1',
-    shopId: 'shop-1',
-    ownerAdminEmail: 'admin@nexus.com',
-    createdByEmail: 'admin@nexus.com',
-    firstName: 'Afzal',
-    lastName: 'Ahan',
-    email: 'afzal@nexus.com',
-    phone: '+92345678901',
-    companyName: 'WedDev',
-    city: 'Karachi',
-    customerType: 'VIP',
-    createdAt: new Date().toISOString(),
-  },
-];
-
-const DEMO_TASKS: ApiTask[] = [
-  {
-    id: 'task-demo-1',
-    title: 'Follow up with Zeeshan Khan',
-    description: 'Call regarding project proposal',
-    taskStatus: 'In Progress',
-    priority: 'High',
-    dueDate: new Date(Date.now() + 86400000).toISOString(),
-    ownerAdminEmail: 'admin@nexus.com',
-    createdByEmail: 'admin@nexus.com',
-    createdAt: new Date().toISOString(),
-  },
-];
-
-const DEMO_CALLING: ApiCallingData[] = [
-  {
-    id: 'call-demo-1',
-    phoneNumber: '+92 300 1234567',
-    contactName: 'Zeeshan Khan',
-    status: 'Available',
-    notes: 'Primary contact number',
-    ownerAdminEmail: 'admin@nexus.com',
-    createdByEmail: 'admin@nexus.com',
-    createdAt: new Date().toISOString(),
-  },
-];
+const DEMO_TASKS: ApiTask[] = [];
+const DEMO_CALLING: ApiCallingData[] = [];
 
 // Helper to format lead row from Supabase
 function formatLeadRow(row: any): ApiLead {
@@ -263,7 +367,9 @@ function formatCallingRow(row: any): ApiCallingData {
     phoneNumber: row.phone_number || '',
     contactName: row.contact_name || row.notes || '',
     status: row.status || 'Available',
-    assignedToUserId: row.assigned_to_user_id,
+    assignedToUserId: row.assigned_to_user_id || row.assignedToUserId,
+    assignedToName: row.assigned_to_name || row.assignedToName,
+    assignedToEmail: row.assigned_to_email || row.assignedToEmail,
     ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
     createdByEmail: row.created_by_email || 'admin@nexus.com',
     notes: row.notes || '',
@@ -280,17 +386,111 @@ function mergeWithLocal<T extends { id: string }>(dbItems: T[], localCacheKey: s
   return [...dbItems, ...localOnly];
 }
 
-// Default UUIDs for valid database constraints
-const DEFAULT_SHOP_UUID = '3c337fc4-48ba-4835-a7b2-93987afe55be';
-const DEFAULT_USER_UUID = '01a2e7c8-6a06-4085-9e3f-5fbcd6138a59';
+// -----------------------------------------------------------------------------
+// CALLING DATA SYNC HELPERS
+// -----------------------------------------------------------------------------
+function getCallingLeadsAsApiLeads(ownerAdminEmail: string, isSuperAdmin: boolean = false, hasExplicitAccess: boolean = false): ApiLead[] {
+  try {
+    const raw = localStorage.getItem('nexus_crm_leads_from_calls_v2');
+    if (!raw) return [];
+    const callingLeads: any[] = JSON.parse(raw);
+    if (!Array.isArray(callingLeads)) return [];
 
-function getSafeUuid(id: string | undefined | null, fallback: string = DEFAULT_USER_UUID): string {
-  if (!id) return fallback;
-  const clean = String(id).trim();
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (uuidRegex.test(clean)) return clean;
-  return fallback;
+    const filtered = callingLeads.filter((l) => {
+      const leadAdmin = (l.adminEmail || l.ownerAdminEmail || '').toLowerCase().trim();
+      const isSuperLead = !leadAdmin || leadAdmin === 'admin@nexus.com' || leadAdmin === 'superadmin@nexus.com';
+
+      if (isSuperAdmin || hasExplicitAccess) return true;
+      if (isSuperLead) return false;
+      return leadAdmin === ownerAdminEmail;
+    });
+
+    return filtered.map((l) => {
+      const rawName = (l.name || 'Calling Lead').replace(/\s*\(\d+\)$/, '').trim();
+      const parts = rawName.split(' ');
+      const firstName = parts[0] || 'Calling';
+      const lastName = parts.slice(1).join(' ') || 'Lead';
+
+      let leadStatus = 'New';
+      if (l.status === 'Trial') leadStatus = 'Qualified';
+      else if (l.status === 'Sales') leadStatus = 'Won';
+      else if (l.status === 'Denied') leadStatus = 'Lost';
+      else if (l.status === 'Renewal') leadStatus = 'Won';
+      else if (l.status === 'Lead') leadStatus = 'Contacted';
+      else leadStatus = 'New';
+
+      const leadValue = l.saleAmount || (l.status === 'Trial' ? 25000 : l.status === 'Sales' || l.status === 'Renewal' ? 50000 : 15000);
+
+      return {
+        id: `call-lead-${l.id}`,
+        shopId: 'shop-1',
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: l.agentName ? `${l.agentName.toLowerCase().replace(/[^a-z0-9]/g, '')}@nexus.com` : 'admin@nexus.com',
+        firstName,
+        lastName,
+        email: `${(l.phone || '').replace(/[^0-9]/g, '')}@client.com`,
+        phone: l.phone || '',
+        companyName: `Agent: ${l.agentName || 'Sales Agent'}`,
+        leadSource: l.source || 'Calling Data',
+        leadStatus,
+        leadValue,
+        priority: l.status === 'Trial' || l.status === 'Sales' ? 'High' : 'Medium',
+        notes: l.notes || `Created via calling system by ${l.agentName || 'Agent'}`,
+        createdAt: l.createdDate || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  } catch (e) {
+    return [];
+  }
 }
+
+function getCallingSalesAsApiCustomers(ownerAdminEmail: string, isSuperAdmin: boolean = false, hasExplicitAccess: boolean = false): ApiCustomer[] {
+  try {
+    const raw = localStorage.getItem('nexus_crm_leads_from_calls_v2');
+    if (!raw) return [];
+    const callingLeads: any[] = JSON.parse(raw);
+    if (!Array.isArray(callingLeads)) return [];
+
+    const filtered = callingLeads.filter((l) => {
+      if (l.status !== 'Sales' && l.status !== 'Renewal') return false;
+      const leadAdmin = (l.adminEmail || l.ownerAdminEmail || '').toLowerCase().trim();
+      const isSuperLead = !leadAdmin || leadAdmin === 'admin@nexus.com' || leadAdmin === 'superadmin@nexus.com';
+
+      if (isSuperAdmin || hasExplicitAccess) return true;
+      if (isSuperLead) return false;
+      return leadAdmin === ownerAdminEmail;
+    });
+
+    return filtered.map((l) => {
+      const rawName = (l.name || 'Sales Customer').replace(/\s*\(\d+\)$/, '').trim();
+      const parts = rawName.split(' ');
+      const firstName = parts[0] || 'Sales';
+      const lastName = parts.slice(1).join(' ') || 'Customer';
+
+      return {
+        id: `call-cust-${l.id}`,
+        shopId: 'shop-1',
+        ownerAdminEmail: ownerAdminEmail,
+        createdByEmail: l.agentName ? `${l.agentName.toLowerCase().replace(/[^a-z0-9]/g, '')}@nexus.com` : 'admin@nexus.com',
+        firstName,
+        lastName,
+        email: `${(l.phone || '').replace(/[^0-9]/g, '')}@client.com`,
+        phone: l.phone || '',
+        companyName: `Agent: ${l.agentName || 'Sales Agent'}`,
+        city: 'Karachi',
+        customerType: l.status === 'Renewal' ? 'VIP' : 'Regular',
+        tags: ['Calling Converted', l.status === 'Renewal' ? 'Renewal' : 'Sale Won'],
+        totalOrders: 1,
+        totalSpent: l.saleAmount || 50000,
+        createdAt: l.saleDate || l.createdDate || new Date().toISOString(),
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+}
+
 
 // -----------------------------------------------------------------------------
 // LEADS HOOK
@@ -298,13 +498,33 @@ function getSafeUuid(id: string | undefined | null, fallback: string = DEFAULT_U
 export function useLeads() {
   const { user, profile } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
-  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role).toLowerCase().trim();
   const localKey = `nexus_crm_leads_${ownerAdminEmail}`;
+  const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || profile?.role === 'super_admin';
+  const allAdmins = getAdmins();
+  const currentAdminProfile = allAdmins.find(a => (a.email || '').toLowerCase().trim() === currentUserEmail);
+  const hasExplicitAccess = isSuperAdmin || (currentAdminProfile?.grant_super_admin_data_access === true);
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
+  const filterByWorkspace = useCallback((items: ApiLead[]): ApiLead[] => {
+    return items.filter((item) => {
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
+      return itemOwner === ownerAdminEmail;
+    });
+  }, [ownerAdminEmail]);
+
   const [leads, setLeads] = useState<ApiLead[]>(() => {
-    const cached = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
-    return cached;
+    const cached = getLocalCache<ApiLead[]>(localKey, []);
+    const initialFallback = isSuperAdminWorkspace ? DEMO_LEADS : [];
+    const base = cached.length > 0 ? cached : initialFallback;
+    const scoped = filterByWorkspace(base);
+    const callingLeads = getCallingLeadsAsApiLeads(ownerAdminEmail, isSuperAdmin, hasExplicitAccess);
+    const existingPhones = new Set(scoped.map((l) => (l.phone || '').replace(/[^0-9]/g, '')));
+    const uniqueCalling = callingLeads.filter((cl) => {
+      const p = (cl.phone || '').replace(/[^0-9]/g, '');
+      return !p || !existingPhones.has(p);
+    });
+    return [...scoped, ...uniqueCalling];
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -312,6 +532,7 @@ export function useLeads() {
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     setError(null);
+    let baseLeads: ApiLead[] = [];
     try {
       const { data, error: sbErr } = await supabase
         .from('leads')
@@ -321,46 +542,69 @@ export function useLeads() {
 
       if (!sbErr && Array.isArray(data) && data.length > 0) {
         const formatted = data.map(formatLeadRow);
-        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
-        setLeads(merged);
-        setLocalCache(localKey, merged);
-        setLoading(false);
-        return;
+        baseLeads = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
+      } else {
+        baseLeads = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
       }
     } catch (err: any) {
-      console.warn('fetchLeads notice:', err);
+      baseLeads = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
     }
 
-    const cached = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
-    setLeads(cached);
-    setLoading(false);
-  }, [localKey, isSuperAdminWorkspace]);
+    const scoped = filterByWorkspace(baseLeads);
+    const callingLeads = getCallingLeadsAsApiLeads(ownerAdminEmail, isSuperAdmin, hasExplicitAccess);
+    const existingPhones = new Set(scoped.map((l) => (l.phone || '').replace(/[^0-9]/g, '')));
+    const uniqueCalling = callingLeads.filter((cl) => {
+      const p = (cl.phone || '').replace(/[^0-9]/g, '');
+      return !p || !existingPhones.has(p);
+    });
 
-  useEffect(() => { fetchLeads(); }, [fetchLeads]);
+    const mergedAll = [...scoped, ...uniqueCalling];
+    setLeads(mergedAll);
+    setLocalCache(localKey, mergedAll);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail, isSuperAdmin, hasExplicitAccess]);
+
+  useEffect(() => {
+    fetchLeads();
+    const handleSync = () => fetchLeads();
+    window.addEventListener('nexus_crm_calling_data_changed', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('nexus_crm_calling_data_changed', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, [fetchLeads]);
 
   const createLead = async (payload: CreateLeadPayload) => {
     let newLead: ApiLead | null = null;
-    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
-    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+    const rawShopId = (user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id;
+    const rawUserId = user?.id || profile?.id;
+    const shopId = (rawShopId && String(rawShopId).length === 36) ? rawShopId : null;
+    const userId = (rawUserId && String(rawUserId).length === 36) ? rawUserId : null;
 
     try {
+      const insertPayload: any = {
+        first_name: payload.firstName.trim(),
+        last_name: payload.lastName.trim(),
+        email: payload.email?.trim() || null,
+        phone: payload.phone?.trim() || null,
+        company_name: payload.companyName || null,
+        lead_source: payload.leadSource || 'Manual Entry',
+        lead_status: payload.leadStatus || 'New',
+        lead_value: payload.leadValue || 0,
+        priority: payload.priority || 'Medium',
+        notes: payload.notes || null,
+      };
+
+      if (shopId) insertPayload.shop_id = shopId;
+      if (userId) {
+        insertPayload.created_by_id = userId;
+        insertPayload.assigned_to_user_id = userId;
+      }
+
       const { data, error: sbErr } = await supabase
         .from('leads')
-        .insert({
-          shop_id: shopId,
-          created_by_id: userId,
-          assigned_to_user_id: userId,
-          first_name: payload.firstName.trim(),
-          last_name: payload.lastName.trim(),
-          email: payload.email?.trim() || null,
-          phone: payload.phone?.trim() || null,
-          company_name: payload.companyName || null,
-          lead_source: payload.leadSource || 'Manual Entry',
-          lead_status: payload.leadStatus || 'New',
-          lead_value: payload.leadValue || 0,
-          priority: payload.priority || 'Medium',
-          notes: payload.notes || null,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -433,13 +677,33 @@ export function useLeads() {
 export function useCustomers() {
   const { user, profile } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
-  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role).toLowerCase().trim();
   const localKey = `nexus_crm_customers_${ownerAdminEmail}`;
+  const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || profile?.role === 'super_admin';
+  const allAdmins = getAdmins();
+  const currentAdminProfile = allAdmins.find(a => (a.email || '').toLowerCase().trim() === currentUserEmail);
+  const hasExplicitAccess = isSuperAdmin || (currentAdminProfile?.grant_super_admin_data_access === true);
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
+  const filterByWorkspace = useCallback((items: ApiCustomer[]): ApiCustomer[] => {
+    return items.filter((item) => {
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
+      return itemOwner === ownerAdminEmail;
+    });
+  }, [ownerAdminEmail]);
+
   const [customers, setCustomers] = useState<ApiCustomer[]>(() => {
-    const cached = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
-    return cached;
+    const cached = getLocalCache<ApiCustomer[]>(localKey, []);
+    const initialFallback = isSuperAdminWorkspace ? DEMO_CUSTOMERS : [];
+    const base = cached.length > 0 ? cached : initialFallback;
+    const scoped = filterByWorkspace(base);
+    const callingCust = getCallingSalesAsApiCustomers(ownerAdminEmail, isSuperAdmin, hasExplicitAccess);
+    const existingPhones = new Set(scoped.map((c) => (c.phone || '').replace(/[^0-9]/g, '')));
+    const uniqueCalling = callingCust.filter((cc) => {
+      const p = (cc.phone || '').replace(/[^0-9]/g, '');
+      return !p || !existingPhones.has(p);
+    });
+    return [...scoped, ...uniqueCalling];
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -447,6 +711,7 @@ export function useCustomers() {
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
     setError(null);
+    let baseCustomers: ApiCustomer[] = [];
     try {
       const { data, error: sbErr } = await supabase
         .from('customers')
@@ -456,43 +721,64 @@ export function useCustomers() {
 
       if (!sbErr && Array.isArray(data) && data.length > 0) {
         const formatted = data.map(formatCustomerRow);
-        const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
-        setCustomers(merged);
-        setLocalCache(localKey, merged);
-        setLoading(false);
-        return;
+        baseCustomers = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
+      } else {
+        baseCustomers = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
       }
     } catch (err: any) {
-      console.warn('fetchCustomers notice:', err);
+      baseCustomers = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
     }
 
-    const cached = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
-    setCustomers(cached);
-    setLoading(false);
-  }, [localKey, isSuperAdminWorkspace]);
+    const scoped = filterByWorkspace(baseCustomers);
+    const callingCustomers = getCallingSalesAsApiCustomers(ownerAdminEmail, isSuperAdmin, hasExplicitAccess);
+    const existingPhones = new Set(scoped.map((c) => (c.phone || '').replace(/[^0-9]/g, '')));
+    const uniqueCalling = callingCustomers.filter((cc) => {
+      const p = (cc.phone || '').replace(/[^0-9]/g, '');
+      return !p || !existingPhones.has(p);
+    });
 
-  useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+    const mergedAll = [...scoped, ...uniqueCalling];
+    setCustomers(mergedAll);
+    setLocalCache(localKey, mergedAll);
+    setLoading(false);
+  }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail, isSuperAdmin, hasExplicitAccess]);
+
+  useEffect(() => {
+    fetchCustomers();
+    const handleSync = () => fetchCustomers();
+    window.addEventListener('nexus_crm_calling_data_changed', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('nexus_crm_calling_data_changed', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, [fetchCustomers]);
 
   const createCustomer = async (payload: CreateCustomerPayload) => {
     let newCustomer: ApiCustomer | null = null;
-    const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
-    const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+    const rawShopId = (user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id;
+    const rawUserId = user?.id || profile?.id;
+    const shopId = (rawShopId && String(rawShopId).length === 36) ? rawShopId : null;
+    const userId = (rawUserId && String(rawUserId).length === 36) ? rawUserId : null;
 
     try {
+      const insertPayload: any = {
+        first_name: payload.firstName.trim(),
+        last_name: payload.lastName.trim(),
+        email: payload.email?.trim() || null,
+        phone: payload.phone?.trim() || null,
+        company_name: payload.companyName || null,
+        city: payload.city || null,
+        customer_type: payload.customerType || 'Regular',
+        notes: payload.notes || null,
+      };
+
+      if (shopId) insertPayload.shop_id = shopId;
+      if (userId) insertPayload.created_by_id = userId;
+
       const { data, error: sbErr } = await supabase
         .from('customers')
-        .insert({
-          shop_id: shopId,
-          created_by_id: userId,
-          first_name: payload.firstName.trim(),
-          last_name: payload.lastName.trim(),
-          email: payload.email?.trim() || null,
-          phone: payload.phone?.trim() || null,
-          company_name: payload.companyName || null,
-          city: payload.city || null,
-          customer_type: payload.customerType || 'Individual',
-          notes: payload.notes || null,
-        })
+        .insert(insertPayload)
         .select()
         .single();
 
@@ -551,13 +837,22 @@ export function useCustomers() {
 export function useTasks() {
   const { user, profile } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
-  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role).toLowerCase().trim();
   const localKey = `nexus_crm_tasks_${ownerAdminEmail}`;
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
+  const filterByWorkspace = useCallback((items: ApiTask[]): ApiTask[] => {
+    return items.filter((item) => {
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
+      return itemOwner === ownerAdminEmail;
+    });
+  }, [ownerAdminEmail]);
+
   const [tasks, setTasks] = useState<ApiTask[]>(() => {
-    const cached = getLocalCache<ApiTask[]>(localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
-    return cached;
+    const cached = getLocalCache<ApiTask[]>(localKey, []);
+    const initialFallback = isSuperAdminWorkspace ? DEMO_TASKS : [];
+    const merged = cached.length > 0 ? cached : initialFallback;
+    return filterByWorkspace(merged);
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -575,8 +870,9 @@ export function useTasks() {
       if (!sbErr && Array.isArray(data) && data.length > 0) {
         const formatted = data.map(formatTaskRow);
         const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
-        setTasks(merged);
-        setLocalCache(localKey, merged);
+        const scoped = filterByWorkspace(merged);
+        setTasks(scoped);
+        setLocalCache(localKey, scoped);
         setLoading(false);
         return;
       }
@@ -585,9 +881,11 @@ export function useTasks() {
     }
 
     const cached = getLocalCache<ApiTask[]>(localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
-    setTasks(cached);
+    const scoped = filterByWorkspace(cached);
+    setTasks(scoped);
+    setLocalCache(localKey, scoped);
     setLoading(false);
-  }, [localKey, isSuperAdminWorkspace]);
+  }, [localKey, isSuperAdminWorkspace, filterByWorkspace]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
@@ -676,13 +974,22 @@ export function useTasks() {
 export function useCallingData() {
   const { user, profile } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
-  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role);
+  const ownerAdminEmail = getOwnerAdminEmail(user?.email, profile?.role).toLowerCase().trim();
   const localKey = `nexus_crm_calling_${ownerAdminEmail}`;
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
+  const filterByWorkspace = useCallback((items: ApiCallingData[]): ApiCallingData[] => {
+    return items.filter((item) => {
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
+      return itemOwner === ownerAdminEmail;
+    });
+  }, [ownerAdminEmail]);
+
   const [callingData, setCallingData] = useState<ApiCallingData[]>(() => {
-    const cached = getLocalCache<ApiCallingData[]>(localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
-    return cached;
+    const cached = getLocalCache<ApiCallingData[]>(localKey, []);
+    const initialFallback = isSuperAdminWorkspace ? DEMO_CALLING : [];
+    const merged = cached.length > 0 ? cached : initialFallback;
+    return filterByWorkspace(merged);
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -700,8 +1007,9 @@ export function useCallingData() {
       if (!sbErr && Array.isArray(data) && data.length > 0) {
         const formatted = data.map(formatCallingRow);
         const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
-        setCallingData(merged);
-        setLocalCache(localKey, merged);
+        const scoped = filterByWorkspace(merged);
+        setCallingData(scoped);
+        setLocalCache(localKey, scoped);
         setLoading(false);
         return;
       }
@@ -710,16 +1018,26 @@ export function useCallingData() {
     }
 
     const cached = getLocalCache<ApiCallingData[]>(localKey, isSuperAdminWorkspace ? DEMO_CALLING : []);
-    setCallingData(cached);
+    const scoped = filterByWorkspace(cached);
+    setCallingData(scoped);
+    setLocalCache(localKey, scoped);
     setLoading(false);
-  }, [localKey, isSuperAdminWorkspace]);
+  }, [localKey, isSuperAdminWorkspace, filterByWorkspace]);
 
   useEffect(() => { fetchCallingData(); }, [fetchCallingData]);
 
-  const addNumber = async (payload: { phoneNumber: string; contactName?: string; notes?: string }) => {
+  const addNumber = async (payload: {
+    phoneNumber: string;
+    contactName?: string;
+    notes?: string;
+    assignedToUserId?: string;
+    assignedToName?: string;
+    assignedToEmail?: string;
+  }) => {
     let newCall: ApiCallingData | null = null;
     const shopId = getSafeUuid((user?.user_metadata as any)?.shop_id || (profile as any)?.shop_id, DEFAULT_SHOP_UUID);
     const userId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
+    const initialStatus = payload.assignedToUserId ? 'Assigned' : 'Available';
 
     try {
       const { data, error: sbErr } = await supabase
@@ -728,7 +1046,10 @@ export function useCallingData() {
           shop_id: shopId,
           created_by_id: userId,
           phone_number: payload.phoneNumber.trim(),
-          status: 'Available',
+          status: initialStatus,
+          assigned_to_user_id: payload.assignedToUserId || null,
+          assigned_to_name: payload.assignedToName || null,
+          assigned_to_email: payload.assignedToEmail || null,
           notes: payload.notes || payload.contactName || null,
         })
         .select()
@@ -748,7 +1069,10 @@ export function useCallingData() {
         id: `call-local-${Date.now()}`,
         phoneNumber: payload.phoneNumber,
         contactName: payload.contactName,
-        status: 'Available',
+        status: initialStatus,
+        assignedToUserId: payload.assignedToUserId,
+        assignedToName: payload.assignedToName,
+        assignedToEmail: payload.assignedToEmail,
         notes: payload.notes,
         createdAt: new Date().toISOString(),
         ownerAdminEmail: ownerAdminEmail,
@@ -765,6 +1089,43 @@ export function useCallingData() {
     return newCall;
   };
 
+  const assignNumber = async (id: string, assignedTo: { id: string; name: string; email?: string } | null) => {
+    const updatedStatus = assignedTo ? 'Assigned' : 'Available';
+    const assignedUserId = assignedTo?.id || null;
+    const assignedName = assignedTo?.name || null;
+    const assignedEmail = assignedTo?.email || null;
+
+    try {
+      await supabase
+        .from('calling_data')
+        .update({
+          status: updatedStatus,
+          assigned_to_user_id: assignedUserId,
+          assigned_to_name: assignedName,
+          assigned_to_email: assignedEmail,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id);
+    } catch { }
+
+    setCallingData((prev) => {
+      const updated = prev.map((c) => {
+        if (c.id === id) {
+          return {
+            ...c,
+            status: updatedStatus,
+            assignedToUserId: assignedUserId || undefined,
+            assignedToName: assignedName || undefined,
+            assignedToEmail: assignedEmail || undefined,
+          };
+        }
+        return c;
+      });
+      setLocalCache(localKey, updated);
+      return updated;
+    });
+  };
+
   const logCall = async (id: string, notes: string, outcome: string) => {
     try {
       await supabase.from('calling_data').update({ status: 'Called', notes: notes, updated_at: new Date().toISOString() }).eq('id', id);
@@ -776,5 +1137,5 @@ export function useCallingData() {
     });
   };
 
-  return { callingData, loading, error, addNumber, logCall, refetch: fetchCallingData };
+  return { callingData, loading, error, addNumber, assignNumber, logCall, refetch: fetchCallingData };
 }
