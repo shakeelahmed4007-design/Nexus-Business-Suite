@@ -24,6 +24,7 @@ export interface CallingNumber {
   shopId?: string;
   agentId?: string;
   agentName?: string;
+  agentEmail?: string;
   allocatedDate?: string;
   expiryDate?: string;
   allocationStatus?: AllocationStatus;
@@ -59,6 +60,7 @@ export interface LeadFromCall {
   shopId?: string;
   agentId: string;
   agentName: string;
+  agentEmail?: string;
   status: LeadStatus;
   source: LeadSource;
   createdFromCall: boolean;

@@ -49,13 +49,13 @@ export function PaymentsPage() {
   const displayPayments = hasAccess ? paymentsList : [];
   const displayBreakdown = hasAccess ? paymentMethodBreakdown : [];
 
-  const totalPaid = displayPayments.filter((p) => p.status === 'Paid' || p.status === 'Completed').reduce((a, p) => a + p.amount, 0);
+  const totalPaid = displayPayments.filter((p) => p.status === 'Paid' || (p.status as string) === 'Completed').reduce((a, p) => a + p.amount, 0);
   const totalPending = displayPayments.filter((p) => p.status === 'Pending').reduce((a, p) => a + p.amount, 0);
   const totalOverdue = displayPayments.filter((p) => p.status === 'Overdue').reduce((a, p) => a + p.amount, 0);
 
   const columns: Column<Payment>[] = [
     { key: 'id', header: 'ID', render: (p) => <span className="font-semibold text-brand-600 dark:text-brand-400">{p.id}</span> },
-    { key: 'invoice', header: 'Invoice', render: (p) => <span className="text-ink-600 dark:text-ink-300">{p.invoice || p.invoiceId || 'INV-1001'}</span> },
+    { key: 'invoice', header: 'Invoice', render: (p) => <span className="text-ink-600 dark:text-ink-300">{p.invoice || (p as any).invoiceId || 'INV-1001'}</span> },
     { key: 'customer', header: 'Customer' },
     { key: 'amount', header: 'Amount', align: 'right', render: (p) => <span className="font-semibold">PKR {p.amount.toLocaleString()}</span> },
     { key: 'method', header: 'Method', render: (p) => <span className="text-xs text-ink-500">{p.method}</span> },

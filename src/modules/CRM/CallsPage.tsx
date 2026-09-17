@@ -28,25 +28,30 @@ import type { CallingNumber } from './CallingData/types';
 export type SubTab = 'all' | 'active' | 'trial' | 'denied' | 'renewal' | 'import';
 
 export function CallsPage() {
-  const { hasAccess } = useDataAccess('calling_data');
+  const { hasAccess, canDelete } = useDataAccess('calling_data');
   const { user, profile } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
   const userRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
   const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || userRole === 'super_admin';
-  const isSalesOrStaff = userRole === 'sales' || userRole === 'staff' || userRole === 'agent';
-  const isAdmin = !isSalesOrStaff && (isSuperAdmin || userRole === 'admin' || userRole === 'shop_admin' || currentUserEmail.includes('admin'));
+  const isSalesAgent = userRole === 'sales' || userRole === 'agent' || userRole === 'staff';
+  
+  // Use canDelete to identify true admins, since sales agents have can_delete: false by default
+  const isAdmin = isSuperAdmin || userRole === 'admin' || userRole === 'shop_admin' || currentUserEmail.includes('admin') || canDelete || (!isSalesAgent && hasAccess);
 
   const store = useCallingDataStore();
   const [activeTab, setActiveTab] = useState<SubTab>('all');
 
-  // If user is sales or staff, permanently lock them to Agent mode with their own identity
+  // If user is a sales agent or staff, permanently lock them to Agent mode with their own identity
   useEffect(() => {
-    if (isSalesOrStaff) {
-      const matchAgent = store.agents.find(a => a.email.toLowerCase() === currentUserEmail || a.id === user?.id);
+    if (isSalesAgent) {
+      const matchAgent = store.agents.find(a =>
+        (a.email && a.email.toLowerCase() === currentUserEmail) ||
+        (a.id && (a.id === user?.id || a.id === profile?.id))
+      );
       const targetId = matchAgent ? matchAgent.id : (user?.id || 'agent-1');
       store.setRoleMode('Agent', targetId);
     }
-  }, [isSalesOrStaff, currentUserEmail, user?.id, store.agents]);
+  }, [isSalesAgent, currentUserEmail, user?.id, profile?.id, store.agents]);
 
   // Modals state
   const [logModalOpen, setLogModalOpen] = useState(false);
@@ -110,7 +115,7 @@ export function CallsPage() {
 
         {/* Header Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {isAdmin && store.roleMode === 'Admin' && (
+          {isAdmin && (
             <>
               <button
                 type="button"

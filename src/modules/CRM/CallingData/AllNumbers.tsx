@@ -30,16 +30,21 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const [pageSize, setPageSize] = useState<number | 'ALL'>(250);
+
   const filteredNumbers = useMemo(() => {
     return numbers.filter(n => {
       const matchPhone = !searchPhone || n.phone.toLowerCase().includes(searchPhone.toLowerCase());
-      const matchStatus = statusFilter === 'ALL' || n.status === statusFilter || (statusFilter === 'Unused' && n.status === 'Allocated');
+      const matchStatus = statusFilter === 'ALL' || n.status === statusFilter || (statusFilter === 'Unused' && (n.status === 'Allocated' || n.status === 'Available'));
       const matchAgent = agentFilter === 'ALL' || n.agentId === agentFilter;
       return matchPhone && matchStatus && matchAgent;
     });
   }, [numbers, searchPhone, statusFilter, agentFilter]);
 
-  const visibleNumbers = useMemo(() => filteredNumbers.slice(0, 100), [filteredNumbers]);
+  const visibleNumbers = useMemo(() => {
+    if (pageSize === 'ALL') return filteredNumbers;
+    return filteredNumbers.slice(0, pageSize);
+  }, [filteredNumbers, pageSize]);
 
   const allVisibleSelected = useMemo(() => {
     return visibleNumbers.length > 0 && visibleNumbers.every((n) => selectedIds.includes(n.id));
@@ -61,9 +66,15 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
 
   const handleBulkAssign = (targetAgId: string) => {
     if (!targetAgId || selectedIds.length === 0) return;
-    selectedIds.forEach((id) => {
-      reassignNumberToAgent(id, targetAgId);
-    });
+    if (targetAgId === 'unassigned') {
+      selectedIds.forEach((id) => {
+        returnToAdminPool(id, 'Bulk Unassigned by Admin');
+      });
+    } else {
+      selectedIds.forEach((id) => {
+        reassignNumberToAgent(id, targetAgId);
+      });
+    }
     setSelectedIds([]);
   };
 
@@ -107,7 +118,8 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
               className="h-9 rounded-lg border border-ink-200 bg-white px-2.5 text-xs font-medium text-ink-800 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-100"
             >
               <option value="ALL">All Statuses</option>
-              <option value="Allocated">Unused / Allocated</option>
+              <option value="Available">Available (Unassigned)</option>
+              <option value="Allocated">Allocated (Assigned)</option>
               <option value="Used">Called / Used</option>
               <option value="Expired">Expired</option>
             </select>
@@ -179,7 +191,6 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
                 <option value="Trial" className="text-ink-900">🌟 Trial Leads</option>
                 <option value="Renewal" className="text-ink-900">🔄 Renewal List</option>
                 <option value="Denied" className="text-ink-900">❌ Denied / Closed</option>
-                <option value="Admin" className="text-ink-900">👑 Admin Pool</option>
               </select>
 
               <button
@@ -196,13 +207,27 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
 
       {/* Numbers Table */}
       <Card className="p-0 overflow-hidden">
-        <div className="p-4 border-b border-ink-100 dark:border-ink-800 flex items-center justify-between">
+        <div className="p-4 border-b border-ink-100 dark:border-ink-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h3 className="text-sm font-bold text-ink-900 dark:text-ink-100">Allocated Calling Numbers</h3>
+            <h3 className="text-sm font-bold text-ink-900 dark:text-ink-100">Calling Numbers Pool</h3>
             <p className="text-xs text-ink-500">
-              Showing {visibleNumbers.length} of {numbers.length} allocated numbers.
+              Showing {visibleNumbers.length} of {filteredNumbers.length} numbers ({numbers.length} total in pool).
               {selectedIds.length > 0 && <strong className="ml-1 text-brand-600">({selectedIds.length} selected)</strong>}
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-500">Show:</span>
+            <select
+              value={String(pageSize)}
+              onChange={(e) => setPageSize(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+              className="h-8 rounded-lg border border-ink-200 bg-white px-2 text-xs font-semibold text-ink-800 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-100"
+            >
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="ALL">All Numbers</option>
+            </select>
           </div>
         </div>
 
@@ -278,7 +303,9 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
                         value={num.agentId || ''}
                         onChange={(e) => {
                           const targetAgId = e.target.value;
-                          if (targetAgId) {
+                          if (targetAgId === 'unassigned') {
+                            returnToAdminPool(num.id, 'Unassigned by Admin');
+                          } else if (targetAgId) {
                             reassignNumberToAgent(num.id, targetAgId);
                           }
                         }}
@@ -286,6 +313,14 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
                         title="Assign to specific person / agent"
                       >
                         <option value="" disabled>-- Assign Person --</option>
+                        {num.agentId && (
+                          <option value="unassigned">-- Unassign / Available --</option>
+                        )}
+                        {num.agentId && !agents.some(a => a.id === num.agentId) && (
+                          <option value={num.agentId}>
+                            {num.agentName || 'Assigned Person'}
+                          </option>
+                        )}
                         {agents.map((ag) => (
                           <option key={ag.id} value={ag.id}>
                             {ag.name}
@@ -294,7 +329,7 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
                       </select>
                     </td>
                     <td className="py-3 px-4">
-                      <StatusBadge status={isCalled ? 'Used' : 'Allocated'} variant="calling" />
+                      <StatusBadge status={num.agentId ? 'Assigned' : 'Unassigned'} variant="calling" />
                     </td>
                     <td className="py-3 px-4 text-ink-500 font-mono text-[11px]">
                       {num.lastCallTimestamp ? new Date(num.lastCallTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
@@ -336,7 +371,6 @@ export function AllNumbers({ store, onLogCall }: AllNumbersProps) {
                           <option value="Trial">🌟 Trial Leads</option>
                           <option value="Renewal">🔄 Renewal List</option>
                           <option value="Denied">❌ Denied / Closed</option>
-                          <option value="Admin">👑 Admin Pool</option>
                         </select>
 
                         {isCalled && (

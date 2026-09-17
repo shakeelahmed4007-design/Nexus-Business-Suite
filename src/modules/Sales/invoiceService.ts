@@ -41,7 +41,7 @@ export async function fetchInvoices(ownerAdminEmail?: string): Promise<Invoice[]
           status: row.status || 'Sent',
           items: Array.isArray(row.items) ? row.items : [],
           ownerAdminEmail: shopId,
-        }));
+        } as any));
 
         setLocalInvoices(localKey, formatted);
         return formatted;
@@ -70,7 +70,7 @@ export async function fetchInvoices(ownerAdminEmail?: string): Promise<Invoice[]
         status: row.status || 'Sent',
         items: Array.isArray(row.items) ? row.items : [],
         ownerAdminEmail: shopId,
-      }));
+      } as any));
 
       setLocalInvoices(localKey, formatted);
       return formatted;
@@ -158,9 +158,10 @@ export async function createInvoice(
 
     const cached = getLocalInvoices(localKey, []);
     const updated = [created, ...cached.filter((i) => i.id !== created!.id)];
-    setLocalInvoices(localKey, updated);
+    const mappedData: Invoice[] = updated.filter((i: any) => i !== null) as Invoice[];
+    setLocalInvoices(localKey, mappedData);
 
-    return { success: true, data: created };
+    return { success: true, data: created as Invoice };
   } catch (err: any) {
     console.error('Failed to create invoice:', err);
     return { success: false, error: err?.message || 'Failed to create invoice' };

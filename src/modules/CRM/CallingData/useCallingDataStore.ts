@@ -4,7 +4,7 @@
 /* eslint-disable no-empty */
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/shared/lib/supabaseClient';
-import { getAdmins, syncAdminsFromSupabase } from '@/shared/lib/adminStore';
+import { getAdmins, syncAdminsFromSupabase, getCrudFlags } from '@/shared/lib/adminStore';
 import { useAuth } from '@/shared/context/AuthContext';
 import type {
   CallingNumber,
@@ -59,10 +59,6 @@ export function getDynamicAgents(currentUserEmail?: string, isSuper?: boolean, h
   const resultList: SalesAgent[] = [];
   const existingIds = new Set<string>();
 
-  // 1. Add Unassigned Admin Fallback
-  resultList.push(DEFAULT_FALLBACK_AGENT);
-  existingIds.add(DEFAULT_FALLBACK_AGENT.id);
-
   try {
     const adminUsers = getAdmins();
     if (Array.isArray(adminUsers) && adminUsers.length > 0) {
@@ -77,26 +73,34 @@ export function getDynamicAgents(currentUserEmail?: string, isSuper?: boolean, h
         // Ignore default superadmin fallback duplication
         if (cleanEmail === 'admin@nexus.com' && u.full_name === 'Super Admin') return;
 
-        // Strict isolation: isolated admin only sees agents they created
-        if (!isSuper && !hasSharedAccess) {
-          if (cleanCurrent && creatorEmail && creatorEmail !== cleanCurrent) {
+        const creatorRole = (u.created_by_role || '').toUpperCase();
+
+        // Strict isolation:
+        if (isSuper) {
+          // Super Admin must NOT see staff/sales created by regular Admins!
+          if (creatorRole === 'ADMIN' || creatorRole === 'SHOP_ADMIN') return;
+          if (creatorEmail && creatorEmail !== 'admin@nexus.com' && creatorEmail !== 'superadmin@nexus.com') {
             return;
           }
-          if (cleanCurrent && !creatorEmail && u.created_by_role === 'SUPER_ADMIN') {
+        } else if (!hasSharedAccess) {
+          // Block if the agent was not created by this admin AND the agent is not the admin themselves
+          if (creatorEmail !== cleanCurrent && cleanEmail !== cleanCurrent) {
             return;
           }
         }
 
+        if (u.role !== 'sales') return;
+
         if (!existingIds.has(uId)) {
           existingIds.add(uId);
-          const roleLabel = u.role === 'sales' ? 'Sales' : u.role === 'staff' ? 'Staff' : u.role === 'admin' || u.role === 'shop_admin' ? 'Admin' : 'Team';
+          const roleLabel = 'Sales';
           const displayName = u.full_name || (cleanEmail ? cleanEmail.split('@')[0] : `Team Member ${idx + 1}`);
 
           resultList.push({
             id: uId,
             name: `${displayName} (${roleLabel})`,
             email: u.email || `member${idx + 1}@nexus.com`,
-            role: u.role === 'sales' ? 'Sales Agent' : u.role === 'staff' ? 'Staff Member' : u.role === 'admin' || u.role === 'shop_admin' ? 'Admin' : 'Team Member',
+            role: 'Sales Agent',
             avatarColor: AVATAR_COLORS[idx % AVATAR_COLORS.length],
           });
         }
@@ -108,9 +112,9 @@ export function getDynamicAgents(currentUserEmail?: string, isSuper?: boolean, h
 
   // 2. Only add seed agents for Super Admin or when granted shared access
   if (isSuper || hasSharedAccess) {
-    const hasSalesOrStaff = resultList.some(a => a.id !== 'admin');
-    if (!hasSalesOrStaff) {
-      DEFAULT_SEED_AGENTS.forEach(seed => {
+    const hasSales = resultList.length > 0;
+    if (!hasSales) {
+      DEFAULT_SEED_AGENTS.filter(a => a.role === 'Sales Agent').forEach(seed => {
         if (!existingIds.has(seed.id)) {
           resultList.push(seed);
         }
@@ -156,29 +160,42 @@ export function useCallingDataStore() {
   const { user, profile, shopId: authShopId } = useAuth();
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
   const userRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
-  const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || userRole === 'super_admin';
-  const isSalesOrStaff = userRole === 'sales' || userRole === 'staff' || userRole === 'agent';
 
-  // Check if this admin has been explicitly granted Super Admin shared data access
   const allAdmins = getAdmins();
   const currentAdminProfile = allAdmins.find(a => (a.email || '').toLowerCase().trim() === currentUserEmail);
-  const hasExplicitDataAccess = isSuperAdmin || (currentAdminProfile?.grant_super_admin_data_access === true);
+  const adminPerms = currentAdminProfile?.permissions;
+
+  const isSuperAdmin = currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || userRole === 'super_admin';
+  const hasDeleteAccess = getCrudFlags(adminPerms, 'calling_data').can_delete;
+
+  const isSalesAgent = userRole === 'sales' || userRole === 'agent';
+  // Treat them as a pure agent if they are in sales/agent/staff role without super admin
+  const isPureAgent = isSalesAgent && !isSuperAdmin;
+  const isSalesOrStaff = (userRole === 'sales' || userRole === 'staff' || userRole === 'agent') && !isSuperAdmin;
+
+  // Check if this admin has been explicitly granted Super Admin shared data access
+  const { access: hasCallingDataAccess } = getCrudFlags(adminPerms, 'calling_data');
+  const hasExplicitDataAccess = isSuperAdmin || ((currentAdminProfile as any)?.grant_super_admin_data_access === true) || hasCallingDataAccess;
+  const hasSharedAgentsAccess = isSuperAdmin || ((currentAdminProfile as any)?.grant_super_admin_data_access === true);
 
   const activeShopId = getSafeUuid(authShopId || profile?.shop_id, DEFAULT_SHOP_UUID);
   const activeAdminUserId = getSafeUuid(user?.id || profile?.id, DEFAULT_USER_UUID);
 
-  const [roleMode, setRoleModeState] = useState<RoleMode>(() => getStored<RoleMode>(STORAGE_KEY_ROLE, 'Admin'));
+  const [roleMode, setRoleModeState] = useState<RoleMode>(() => {
+    if (isSalesOrStaff) return 'Agent';
+    return getStored<RoleMode>(STORAGE_KEY_ROLE, 'Admin');
+  });
   const [currentAgentId, setCurrentAgentIdState] = useState<string>(() => getStored<string>(STORAGE_KEY_CURRENT_AGENT, 'agent-1'));
-  const [agents, setAgents] = useState<SalesAgent[]>(() => getDynamicAgents(currentUserEmail, isSuperAdmin, hasExplicitDataAccess));
+  const [agents, setAgents] = useState<SalesAgent[]>(() => getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess));
 
   useEffect(() => {
     const handleAdminsChanged = () => {
-      setAgents(getDynamicAgents(currentUserEmail, isSuperAdmin, hasExplicitDataAccess));
+      setAgents(getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess));
     };
 
     // Auto-sync team members from Supabase profiles on store mount
     syncAdminsFromSupabase().then(() => {
-      setAgents(getDynamicAgents(currentUserEmail, isSuperAdmin, hasExplicitDataAccess));
+      setAgents(getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess));
     }).catch(() => { });
 
     window.addEventListener('nexus_admins_changed', handleAdminsChanged);
@@ -187,7 +204,7 @@ export function useCallingDataStore() {
       window.removeEventListener('nexus_admins_changed', handleAdminsChanged);
       window.removeEventListener('storage', handleAdminsChanged);
     };
-  }, [currentUserEmail, isSuperAdmin, hasExplicitDataAccess]);
+  }, [currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   const [numbers, setNumbers] = useState<CallingNumber[]>(() => {
     const cached = getStored<CallingNumber[]>(STORAGE_KEY_NUMBERS, []);
@@ -209,59 +226,143 @@ export function useCallingDataStore() {
     return Array.isArray(cached) ? cached.filter(i => i && i.id && !i.id.includes('mock-demo-data')) : [];
   });
 
-  // Sync state to local storage
-  useEffect(() => { setStored(STORAGE_KEY_NUMBERS, numbers); }, [numbers]);
-  useEffect(() => { setStored(STORAGE_KEY_LOGS, callLogs); }, [callLogs]);
+  // Sync state to local storage safely
+  useEffect(() => { if (numbers.length > 0) setStored(STORAGE_KEY_NUMBERS, numbers); }, [numbers]);
+  useEffect(() => { if (callLogs.length > 0) setStored(STORAGE_KEY_LOGS, callLogs); }, [callLogs]);
   useEffect(() => {
-    setStored(STORAGE_KEY_LEADS, leads);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('nexus_crm_calling_data_changed'));
+    if (leads.length > 0) {
+      setStored(STORAGE_KEY_LEADS, leads);
     }
   }, [leads]);
-  useEffect(() => { setStored(STORAGE_KEY_IMPORTED, importedLeads); }, [importedLeads]);
+  useEffect(() => { if (importedLeads.length > 0) setStored(STORAGE_KEY_IMPORTED, importedLeads); }, [importedLeads]);
   useEffect(() => { setStored(STORAGE_KEY_ROLE, roleMode); }, [roleMode]);
   useEffect(() => { setStored(STORAGE_KEY_CURRENT_AGENT, currentAgentId); }, [currentAgentId]);
 
   // Fetch real database records from Supabase tables if present
   const fetchSupabaseData = useCallback(async () => {
     try {
-      syncAdminsFromSupabase().then(() => {
-        setAgents(getDynamicAgents());
-      }).catch(() => { });
-
       // 1. Fetch Calling Inventory Numbers for current active shop
-      const { data: numData, error: numErr } = await supabase
+      let numDataRes = await supabase
         .from('calling_data_inventory')
         .select('*')
         .eq('shop_id', activeShopId)
         .order('created_at', { ascending: false });
 
+      if (numDataRes.error || !numDataRes.data || numDataRes.data.length === 0) {
+        const fallbackRes = await supabase
+          .from('calling_data_inventory')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
+          numDataRes = fallbackRes;
+        }
+      }
+
+      const numData = numDataRes.data;
+      const numErr = numDataRes.error;
+
       if (!numErr && Array.isArray(numData) && numData.length > 0) {
-        const formattedNums: CallingNumber[] = numData.map((row: any) => ({
-          id: row.id,
-          phone: row.phone_number,
-          source: row.source || 'Manual Entry',
-          status: row.status || 'Available',
-          adminId: row.admin_user_id || activeAdminUserId,
-          shopId: row.shop_id || activeShopId,
-          agentId: row.assigned_to_user_id || undefined,
-          agentName: row.assigned_to_name || undefined,
-          allocatedDate: row.allocated_date || undefined,
-          expiryDate: row.expiry_date || undefined,
-          allocationStatus: row.allocation_status || 'Active',
-          callCount: Number(row.call_count || 0),
-          lastCallTimestamp: row.last_call_timestamp || undefined,
-          lastCallNotes: row.last_call_notes || undefined,
-          lastCallStatus: row.last_call_status || undefined,
-          linkedLeadId: row.linked_lead_id || undefined,
-          createdAt: row.created_at || new Date().toISOString(),
-        }));
+        const formattedNums: CallingNumber[] = numData.map((row: any) => {
+          let metaAgentId = row.assigned_to_user_id || undefined;
+          let metaAgentName = row.assigned_to_name || undefined;
+          let metaAgentEmail = row.assigned_to_email || undefined;
+          let metaAllocatedDate = row.allocated_date || undefined;
+          let metaExpiryDate = row.expiry_date || undefined;
+          let metaUserNotes = row.notes || undefined;
+
+          if (row.notes && typeof row.notes === 'string' && row.notes.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(row.notes);
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.agentId) metaAgentId = parsed.agentId;
+                if (parsed.agentName) metaAgentName = parsed.agentName;
+                if (parsed.agentEmail) metaAgentEmail = parsed.agentEmail;
+                if (parsed.allocatedDate) metaAllocatedDate = parsed.allocatedDate;
+                if (parsed.expiryDate) metaExpiryDate = parsed.expiryDate;
+                if (parsed.userNotes !== undefined) metaUserNotes = parsed.userNotes;
+              }
+            } catch (e) { }
+          }
+
+          // Resolve agent email if missing from notes
+          if (!metaAgentEmail) {
+            if (metaAgentId) {
+              const matchedAg = agents.find(a => a.id === metaAgentId) || allAdmins.find(a => a.id === metaAgentId);
+              if (matchedAg?.email) metaAgentEmail = matchedAg.email;
+            }
+            if (!metaAgentEmail && metaAgentName) {
+              const cleanTargetName = metaAgentName.toLowerCase().replace(/\s*\((sales|staff|agent)\)\s*/gi, '').trim();
+              const matchedAg = agents.find(a => a.name.toLowerCase().replace(/\s*\((sales|staff|agent)\)\s*/gi, '').trim() === cleanTargetName) ||
+                allAdmins.find(a => (a.full_name || '').toLowerCase().trim() === cleanTargetName);
+              if (matchedAg?.email) metaAgentEmail = matchedAg.email;
+            }
+          }
+
+          const isCreatedByCurrent = Boolean(
+            (row.admin_user_id && (
+              row.admin_user_id === activeAdminUserId ||
+              row.admin_user_id === user?.id ||
+              row.admin_user_id === profile?.id
+            ))
+          );
+          let resolvedAdminEmail: string | undefined = isCreatedByCurrent ? currentUserEmail : undefined;
+          if (!resolvedAdminEmail && row.admin_user_id) {
+            const matchedAdmin = allAdmins.find(a => a.id === row.admin_user_id);
+            if (matchedAdmin?.email) resolvedAdminEmail = matchedAdmin.email;
+          }
+
+          const hasAgent = Boolean(metaAgentId || metaAgentName || metaAgentEmail);
+          return {
+            id: row.id,
+            phone: row.phone_number,
+            source: row.source || 'Manual Entry',
+            status: hasAgent ? 'Allocated' : (row.status || 'Available'),
+            adminId: row.admin_user_id || (isCreatedByCurrent ? activeAdminUserId : DEFAULT_USER_UUID),
+            adminEmail: resolvedAdminEmail,
+            ownerAdminEmail: resolvedAdminEmail,
+            shopId: row.shop_id || activeShopId,
+            agentId: metaAgentId,
+            agentName: metaAgentName,
+            agentEmail: metaAgentEmail,
+            allocatedDate: metaAllocatedDate,
+            expiryDate: metaExpiryDate,
+            allocationStatus: row.allocation_status || (hasAgent ? 'Active' : 'Unallocated'),
+            callCount: Number(row.call_count || 0),
+            lastCallTimestamp: row.last_call_timestamp || undefined,
+            lastCallNotes: metaUserNotes,
+            lastCallStatus: row.last_call_status || undefined,
+            linkedLeadId: row.linked_lead_id || undefined,
+            createdAt: row.created_at || new Date().toISOString(),
+          };
+        });
+
         setNumbers((prev) => {
           const map = new Map<string, CallingNumber>();
           prev.forEach((n) => map.set(n.phone, n));
           formattedNums.forEach((n) => {
             const existing = map.get(n.phone);
-            map.set(n.phone, existing ? { ...existing, ...n } : n);
+            if (existing) {
+              const finalAgentId = n.agentId || existing.agentId;
+              const finalAgentName = n.agentName || existing.agentName;
+              const finalAgentEmail = n.agentEmail || existing.agentEmail;
+              const isAllocated = Boolean(finalAgentId) || existing.status === 'Allocated' || n.status === 'Allocated';
+              map.set(n.phone, {
+                ...existing,
+                ...n,
+                agentId: finalAgentId,
+                agentName: finalAgentName,
+                agentEmail: finalAgentEmail,
+                allocatedDate: finalAgentId ? (n.allocatedDate || existing.allocatedDate) : undefined,
+                expiryDate: finalAgentId ? (n.expiryDate || existing.expiryDate) : undefined,
+                status: isAllocated ? 'Allocated' : (n.status || existing.status || 'Available'),
+                allocationStatus: isAllocated ? 'Active' : (n.allocationStatus || existing.allocationStatus || 'Unallocated'),
+                adminEmail: n.adminEmail || existing.adminEmail,
+                ownerAdminEmail: n.ownerAdminEmail || existing.ownerAdminEmail,
+                adminId: n.adminId || existing.adminId,
+              });
+            } else {
+              map.set(n.phone, n);
+            }
           });
           return Array.from(map.values());
         });
@@ -271,23 +372,41 @@ export function useCallingDataStore() {
       const { data: logData, error: logErr } = await supabase
         .from('call_logs')
         .select('*')
-        .eq('shop_id', activeShopId)
         .order('created_at', { ascending: false });
 
       if (!logErr && Array.isArray(logData) && logData.length > 0) {
-        const formattedLogs: CallLog[] = logData.map((row: any) => ({
-          id: row.id,
-          callingDataId: row.calling_data_inventory_id || row.id,
-          phone: row.phone_number || '',
-          shopId: row.shop_id || activeShopId,
-          agentId: row.agent_user_id || 'agent-1',
-          agentName: row.agent_name || 'Agent',
-          callStatus: row.call_status || 'Connected',
-          duration: Number(row.call_duration_seconds ?? row.duration_seconds ?? 0),
-          customerName: row.customer_name || undefined,
-          notes: row.call_notes || row.notes || '',
-          timestamp: row.call_time || row.created_at || new Date().toISOString(),
-        }));
+        const formattedLogs: CallLog[] = logData.map((row: any) => {
+          const isCreatedByCurrent = Boolean(
+            (row.admin_user_id && (
+              row.admin_user_id === activeAdminUserId ||
+              row.admin_user_id === user?.id ||
+              row.admin_user_id === profile?.id
+            ))
+          );
+          let resolvedAdminEmail: string | undefined = isCreatedByCurrent ? currentUserEmail : undefined;
+          if (!resolvedAdminEmail && row.admin_user_id) {
+            const matchedAdmin = allAdmins.find(a => a.id === row.admin_user_id);
+            if (matchedAdmin?.email) resolvedAdminEmail = matchedAdmin.email;
+          }
+
+          return {
+            id: row.id,
+            callingDataId: row.calling_data_inventory_id || undefined,
+            phone: row.phone_number || '',
+            shopId: row.shop_id || activeShopId,
+            agentId: row.agent_user_id || 'agent-1',
+            agentName: row.agent_name || 'Agent',
+            callStatus: row.call_status || 'Busy',
+            duration: Number(row.duration_seconds || 0),
+            customerName: row.customer_name || undefined,
+            notes: row.notes || '',
+            nextCallbackDate: row.next_callback_date ? row.next_callback_date.split('T')[0] : undefined,
+            timestamp: row.created_at || new Date().toISOString(),
+            adminId: row.admin_user_id || (isCreatedByCurrent ? activeAdminUserId : DEFAULT_USER_UUID),
+            adminEmail: resolvedAdminEmail,
+            ownerAdminEmail: resolvedAdminEmail,
+          };
+        });
         setCallLogs((prev) => {
           const map = new Map<string, CallLog>();
           prev.forEach((l) => map.set(l.id, l));
@@ -300,33 +419,50 @@ export function useCallingDataStore() {
       const { data: leadData, error: leadErr } = await supabase
         .from('leads_from_call')
         .select('*')
-        .eq('shop_id', activeShopId)
         .order('created_at', { ascending: false });
 
       if (!leadErr && Array.isArray(leadData) && leadData.length > 0) {
-        const formattedLeads: LeadFromCall[] = leadData.map((row: any) => ({
-          id: row.id,
-          callLogId: row.call_log_id || undefined,
-          callingDataId: row.calling_data_inventory_id || undefined,
-          phone: row.phone_number || '',
-          name: row.customer_name || 'Lead Customer',
-          shopId: row.shop_id || activeShopId,
-          agentId: row.agent_user_id || 'agent-1',
-          agentName: row.agent_name || 'Agent',
-          status: row.status || 'New',
-          source: row.source || 'Calling Data',
-          createdFromCall: row.created_from_call ?? true,
-          createdDate: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
-          trialPeriod: row.trial_period || undefined,
-          trialStartDate: row.trial_start_date ? row.trial_start_date.split('T')[0] : undefined,
-          trialRemainingMonths: row.trial_end_date ? Math.max(0, Math.ceil((new Date(row.trial_end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))) : undefined,
-          saleAmount: row.sale_amount ? Number(row.sale_amount) : undefined,
-          saleDate: row.sale_date ? row.sale_date.split('T')[0] : undefined,
-          renewalDate: row.renewal_date ? row.renewal_date.split('T')[0] : undefined,
-          denialReason: row.denial_reason || undefined,
-          denialDate: row.denial_date ? row.denial_date.split('T')[0] : undefined,
-          notes: row.notes || undefined,
-        }));
+        const formattedLeads: LeadFromCall[] = leadData.map((row: any) => {
+          const isCreatedByCurrent = Boolean(
+            (row.admin_user_id && (
+              row.admin_user_id === activeAdminUserId ||
+              row.admin_user_id === user?.id ||
+              row.admin_user_id === profile?.id
+            ))
+          );
+          let resolvedAdminEmail: string | undefined = row.admin_email || (isCreatedByCurrent ? currentUserEmail : undefined);
+          if (!resolvedAdminEmail && row.admin_user_id) {
+            const matchedAdmin = allAdmins.find(a => a.id === row.admin_user_id);
+            if (matchedAdmin?.email) resolvedAdminEmail = matchedAdmin.email;
+          }
+
+          return {
+            id: row.id,
+            callLogId: row.call_log_id || undefined,
+            callingDataId: row.calling_data_inventory_id || undefined,
+            phone: row.phone_number || '',
+            name: row.customer_name || 'Lead Customer',
+            shopId: row.shop_id || activeShopId,
+            agentId: row.agent_user_id || 'agent-1',
+            agentName: row.agent_name || 'Agent',
+            status: row.status || 'New',
+            source: row.source || 'Calling Data',
+            createdFromCall: row.created_from_call ?? true,
+            createdDate: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+            trialPeriod: row.trial_period || undefined,
+            trialStartDate: row.trial_start_date ? row.trial_start_date.split('T')[0] : undefined,
+            trialRemainingMonths: row.trial_end_date ? Math.max(0, Math.ceil((new Date(row.trial_end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))) : undefined,
+            saleAmount: row.sale_amount ? Number(row.sale_amount) : undefined,
+            saleDate: row.sale_date ? row.sale_date.split('T')[0] : undefined,
+            renewalDate: row.renewal_date ? row.renewal_date.split('T')[0] : undefined,
+            denialReason: row.denial_reason || undefined,
+            denialDate: row.denial_date ? row.denial_date.split('T')[0] : undefined,
+            notes: row.notes || undefined,
+            adminId: row.admin_user_id || (isCreatedByCurrent ? activeAdminUserId : DEFAULT_USER_UUID),
+            adminEmail: resolvedAdminEmail,
+            ownerAdminEmail: resolvedAdminEmail,
+          };
+        });
         setLeads((prev) => {
           const map = new Map<string, LeadFromCall>();
           prev.forEach((l) => map.set(l.phone || l.id, l));
@@ -342,7 +478,6 @@ export function useCallingDataStore() {
       const { data: impData, error: impErr } = await supabase
         .from('imported_leads')
         .select('*')
-        .eq('shop_id', activeShopId)
         .order('created_at', { ascending: false });
 
       if (!impErr && Array.isArray(impData) && impData.length > 0) {
@@ -352,9 +487,11 @@ export function useCallingDataStore() {
           phone: row.phone_number || '',
           email: row.email || '',
           source: row.source || 'Website',
-          message: row.message || '',
-          importedDate: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
           status: row.status || 'Pending',
+          createdDate: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+          importedDate: row.created_at ? row.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+          notes: row.notes || undefined,
+          adminId: row.admin_user_id || DEFAULT_USER_UUID,
           assignedAgentId: row.assigned_to_user_id || undefined,
           assignedAgentName: row.assigned_to_name || undefined,
         }));
@@ -368,7 +505,7 @@ export function useCallingDataStore() {
     } catch (e) {
       console.warn('Supabase calling data sync notice:', e);
     }
-  }, []);
+  }, [activeShopId, activeAdminUserId, currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   useEffect(() => {
     fetchSupabaseData();
@@ -379,95 +516,253 @@ export function useCallingDataStore() {
     if (agentId) setCurrentAgentIdState(agentId);
   };
 
-  const currentAgent = useMemo(() => {
-    return agents.find(a => a.id === currentAgentId) || agents[0] || DEFAULT_FALLBACK_AGENT;
-  }, [agents, currentAgentId]);
+  const myAgent = useMemo(() => {
+    const cleanEmail = currentUserEmail.toLowerCase().trim();
+    return agents.find(a =>
+      (cleanEmail && (a.email || '').toLowerCase().trim() === cleanEmail) ||
+      (a.id && (a.id === user?.id || a.id === profile?.id || a.id === currentAdminProfile?.id)) ||
+      (a.name && (
+        (user?.user_metadata?.full_name && a.name.toLowerCase().includes(user.user_metadata.full_name.toLowerCase())) ||
+        (profile?.full_name && a.name.toLowerCase().includes(profile.full_name.toLowerCase())) ||
+        (currentAdminProfile?.full_name && a.name.toLowerCase().includes(currentAdminProfile.full_name.toLowerCase()))
+      ))
+    );
+  }, [agents, currentUserEmail, user?.id, profile?.id, profile?.full_name, currentAdminProfile, user?.user_metadata?.full_name]);
 
-  // Strict isolation filter: Super Admin sees all; Isolated Admin sees ONLY their own records
+  const currentAgent = useMemo(() => {
+    if (isSalesOrStaff && myAgent) {
+      return myAgent;
+    }
+    return agents.find(a => a.id === currentAgentId) || agents[0] || DEFAULT_FALLBACK_AGENT;
+  }, [agents, currentAgentId, isSalesOrStaff, myAgent]);
+
+  // Keep roleMode locked to Agent and currentAgentId synced for sales/staff
+  useEffect(() => {
+    if (isSalesOrStaff) {
+      setRoleModeState('Agent');
+      if (myAgent?.id) {
+        setCurrentAgentIdState(myAgent.id);
+      }
+    }
+  }, [isSalesOrStaff, myAgent?.id]);
+
+  // Helper to check if a CallingNumber, Lead, CallLog belongs to the logged in sales / staff person
+  const isAssignedToCurrentUser = useCallback((item: {
+    agentId?: string;
+    agentName?: string;
+    agentEmail?: string;
+  }) => {
+    if (!item) return false;
+
+    const cleanEmail = currentUserEmail.toLowerCase().trim();
+
+    // 1. Direct Email Match
+    if (cleanEmail) {
+      if (item.agentEmail && item.agentEmail.toLowerCase().trim() === cleanEmail) {
+        return true;
+      }
+      const matchedAgent = agents.find(a => (a.email || '').toLowerCase().trim() === cleanEmail);
+      if (matchedAgent && item.agentId && matchedAgent.id === item.agentId) {
+        return true;
+      }
+      const matchedAdmin = allAdmins.find(a => (a.email || '').toLowerCase().trim() === cleanEmail);
+      if (matchedAdmin && item.agentId && matchedAdmin.id === item.agentId) {
+        return true;
+      }
+    }
+
+    // 2. Candidate IDs Match
+    const candidateIds = new Set<string>();
+    if (user?.id) candidateIds.add(user.id);
+    if (profile?.id) candidateIds.add(profile.id);
+    if (currentAdminProfile?.id) candidateIds.add(currentAdminProfile.id);
+    if (myAgent?.id) candidateIds.add(myAgent.id);
+    if (currentAgentId && currentAgentId !== 'agent-1') candidateIds.add(currentAgentId);
+
+    if (item.agentId && candidateIds.has(item.agentId)) {
+      return true;
+    }
+
+    // 3. Name Match
+    const myNames = [
+      profile?.full_name,
+      user?.user_metadata?.full_name,
+      currentAdminProfile?.full_name,
+      myAgent?.name,
+      cleanEmail ? cleanEmail.split('@')[0] : '',
+    ].filter(Boolean).map(n => n!.toLowerCase().trim());
+
+    if (item.agentName) {
+      const cleanItemName = item.agentName.toLowerCase().replace(/\s*\((sales|staff|agent)\)\s*/gi, '').trim();
+      for (const rawName of myNames) {
+        const cleanName = rawName.replace(/\s*\((sales|staff|agent)\)\s*/gi, '').trim();
+        if (cleanName && cleanItemName && (cleanName === cleanItemName || cleanItemName.includes(cleanName) || cleanName.includes(cleanItemName))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }, [currentUserEmail, agents, allAdmins, user?.id, user?.user_metadata?.full_name, profile?.id, profile?.full_name, currentAdminProfile, myAgent, currentAgentId]);
+
+  // Strict isolation filter: Super Admin sees only superadmin records; Regular Admin sees ONLY their own records
   const isAccessible = useCallback((recordAdminEmail?: string, recordAdminId?: string, recordShopId?: string) => {
     const cleanRecordEmail = (recordAdminEmail || '').toLowerCase().trim();
-    const isSuperRecord = !cleanRecordEmail || cleanRecordEmail === 'admin@nexus.com' || cleanRecordEmail === 'superadmin@nexus.com' || recordAdminId === DEFAULT_USER_UUID;
+    const cleanCurrent = currentUserEmail.toLowerCase().trim();
+
+    // 1. Direct Ownership Check:
+    // Does this record belong to the currently logged in admin/user?
+    const isMyRecord = Boolean(
+      (cleanRecordEmail && cleanCurrent && cleanRecordEmail === cleanCurrent) ||
+      (recordAdminId && recordAdminId !== DEFAULT_USER_UUID && (
+        (activeAdminUserId && activeAdminUserId !== DEFAULT_USER_UUID && recordAdminId === activeAdminUserId) ||
+        (user?.id && user.id !== DEFAULT_USER_UUID && recordAdminId === user.id) ||
+        (profile?.id && profile.id !== DEFAULT_USER_UUID && recordAdminId === profile.id)
+      ))
+    );
+
+    // If it belongs to me, I can always see it
+    if (isMyRecord) {
+      return true;
+    }
+
+    // 2. Identify Super Admin / System Default records
+    const isSuperRecord = Boolean(
+      cleanRecordEmail === 'admin@nexus.com' ||
+      cleanRecordEmail === 'superadmin@nexus.com' ||
+      (!cleanRecordEmail && (!recordAdminId || recordAdminId === DEFAULT_USER_UUID)) ||
+      (cleanRecordEmail === '' && recordAdminId === DEFAULT_USER_UUID)
+    );
 
     if (isSuperAdmin) {
+      // Super Admin ONLY sees Super Admin records; records created by regular Admins are hidden!
+      return isSuperRecord;
+    }
+
+    if (hasSharedAgentsAccess) {
       return true;
     }
 
-    if (hasExplicitDataAccess) {
-      return true;
-    }
-
-    // Isolated Admin: MUST NOT see Super Admin records
+    // Isolated Admin: MUST NOT see Super Admin records or unassigned legacy records
     if (isSuperRecord) {
       return false;
     }
 
-    // Admin sees only records they created
-    return cleanRecordEmail === currentUserEmail || (user?.id && recordAdminId === user.id);
-  }, [isSuperAdmin, hasExplicitDataAccess, currentUserEmail, user?.id]);
+    // Records created by other regular admins are hidden
+    return false;
+  }, [isSuperAdmin, hasSharedAgentsAccess, currentUserEmail, user?.id, profile?.id, activeAdminUserId]);
 
   const scopedNumbers = useMemo(() => {
-    return numbers.filter(n => isAccessible(n.adminEmail || (n as any).ownerAdminEmail, n.adminId, n.shopId));
-  }, [numbers, isAccessible]);
-
-  const visibleNumbers = useMemo(() => {
     if (isSalesOrStaff) {
-      return scopedNumbers.filter(n =>
-        n.agentId === currentAgentId ||
-        n.agentId === user?.id ||
-        (n.agentName && user?.user_metadata?.full_name && n.agentName.toLowerCase().includes(user.user_metadata.full_name.toLowerCase()))
-      );
+      // Sales Agent sees ONLY numbers assigned to them
+      return numbers.filter(n => isAssignedToCurrentUser(n));
     }
-    if (roleMode === 'Admin') return scopedNumbers;
-    return scopedNumbers.filter(n => n.agentId === currentAgentId);
-  }, [scopedNumbers, roleMode, currentAgentId, isSalesOrStaff, user?.id, user?.user_metadata?.full_name]);
+
+    return numbers.filter(n => {
+      const email = (n as any).adminEmail || (n as any).ownerAdminEmail;
+      const recordAdminId = n.adminId;
+      if (email || recordAdminId) {
+        return isAccessible(email, recordAdminId, n.shopId);
+      }
+      if (n.agentId) {
+        const agentBelongsToUs = agents.some(a => a.id === n.agentId);
+        if (agentBelongsToUs) return true;
+        return false;
+      }
+      if (isSuperAdmin) return true;
+      return false;
+    });
+  }, [numbers, isSalesOrStaff, isAssignedToCurrentUser, isAccessible, agents, isSuperAdmin]);
 
   const scopedLeads = useMemo(() => {
-    return leads.filter(l => isAccessible((l as any).adminEmail || (l as any).ownerAdminEmail, l.agentId, l.shopId));
-  }, [leads, isAccessible]);
-
-  const visibleLeads = useMemo(() => {
     if (isSalesOrStaff) {
-      return scopedLeads.filter(l =>
-        l.agentId === currentAgentId ||
-        l.agentId === user?.id ||
-        (l.agentName && user?.user_metadata?.full_name && l.agentName.toLowerCase().includes(user.user_metadata.full_name.toLowerCase()))
-      );
+      return leads.filter(l => isAssignedToCurrentUser(l));
     }
-    if (roleMode === 'Admin') return scopedLeads;
-    return scopedLeads.filter(l => l.agentId === currentAgentId);
-  }, [scopedLeads, roleMode, currentAgentId, isSalesOrStaff, user?.id, user?.user_metadata?.full_name]);
+
+    return leads.filter(l => {
+      const email = (l as any).adminEmail || (l as any).ownerAdminEmail;
+      const recordAdminId = (l as any).adminId;
+      if (email || recordAdminId) {
+        return isAccessible(email, recordAdminId, (l as any).shopId);
+      }
+      if (l.agentId) {
+        const agentBelongsToUs = agents.some(a => a.id === l.agentId);
+        if (agentBelongsToUs) return true;
+        return false;
+      }
+      if (isSuperAdmin) return true;
+      return false;
+    });
+  }, [leads, isSalesOrStaff, isAssignedToCurrentUser, isAccessible, agents, isSuperAdmin]);
 
   const scopedCallLogs = useMemo(() => {
-    return callLogs.filter(cl => isAccessible((cl as any).adminEmail || (cl as any).ownerAdminEmail, cl.agentId, cl.shopId));
-  }, [callLogs, isAccessible]);
-
-  const visibleCallLogs = useMemo(() => {
     if (isSalesOrStaff) {
-      return scopedCallLogs.filter(cl =>
-        cl.agentId === currentAgentId ||
-        cl.agentId === user?.id ||
-        (cl.agentName && user?.user_metadata?.full_name && cl.agentName.toLowerCase().includes(user.user_metadata.full_name.toLowerCase()))
-      );
+      return callLogs.filter(cl => isAssignedToCurrentUser(cl));
     }
-    if (roleMode === 'Admin') return scopedCallLogs;
-    return scopedCallLogs.filter(cl => cl.agentId === currentAgentId);
-  }, [scopedCallLogs, roleMode, currentAgentId, isSalesOrStaff, user?.id, user?.user_metadata?.full_name]);
+
+    return callLogs.filter(cl => {
+      const email = (cl as any).adminEmail || (cl as any).ownerAdminEmail;
+      const recordAdminId = (cl as any).adminId;
+      if (email || recordAdminId) {
+        return isAccessible(email, recordAdminId, cl.shopId);
+      }
+      if (cl.agentId) {
+        const agentBelongsToUs = agents.some(a => a.id === cl.agentId);
+        if (agentBelongsToUs) return true;
+        return false;
+      }
+      if (isSuperAdmin) return true;
+      return false;
+    });
+  }, [callLogs, isSalesOrStaff, isAssignedToCurrentUser, isAccessible, agents, isSuperAdmin]);
 
   const scopedImportedLeads = useMemo(() => {
-    return importedLeads.filter(il => isAccessible((il as any).adminEmail || (il as any).ownerAdminEmail, il.assignedAgentId, (il as any).shopId));
-  }, [importedLeads, isAccessible]);
+    if (isSalesOrStaff) {
+      return importedLeads.filter(i => isAssignedToCurrentUser({
+        agentId: i.assignedAgentId,
+        agentName: i.assignedAgentName,
+      }));
+    }
+
+    return importedLeads.filter(i => {
+      const email = (i as any).adminEmail || (i as any).ownerAdminEmail;
+      const recordAdminId = (i as any).adminId;
+      if (email || recordAdminId) {
+        return isAccessible(email, recordAdminId, i.shopId);
+      }
+      if (i.assignedAgentId) {
+        const agentBelongsToUs = agents.some(a => a.id === i.assignedAgentId);
+        if (agentBelongsToUs) return true;
+        return false;
+      }
+      if (isSuperAdmin) return true;
+      return false;
+    });
+  }, [importedLeads, isSalesOrStaff, isAssignedToCurrentUser, isAccessible, agents, isSuperAdmin]);
+
+  const visibleNumbers = useMemo(() => {
+    if (isSalesOrStaff) return scopedNumbers;
+    if (roleMode === 'Admin') return scopedNumbers;
+    return scopedNumbers.filter(n => n.agentId === currentAgentId);
+  }, [scopedNumbers, roleMode, currentAgentId, isSalesOrStaff]);
+
+  const visibleLeads = useMemo(() => {
+    if (isSalesOrStaff) return scopedLeads;
+    if (roleMode === 'Admin') return scopedLeads;
+    return scopedLeads.filter(l => l.agentId === currentAgentId);
+  }, [scopedLeads, roleMode, currentAgentId, isSalesOrStaff]);
+
+  const visibleCallLogs = useMemo(() => {
+    if (isSalesOrStaff) return scopedCallLogs;
+    if (roleMode === 'Admin') return scopedCallLogs;
+    return scopedCallLogs.filter(cl => cl.agentId === currentAgentId);
+  }, [scopedCallLogs, roleMode, currentAgentId, isSalesOrStaff]);
 
   const visibleImportedLeads = useMemo(() => {
-    if (isSalesOrStaff) {
-      return scopedImportedLeads.filter(il =>
-        il.assignedAgentId === currentAgentId ||
-        il.assignedAgentId === user?.id ||
-        (il.assignedAgentName && user?.user_metadata?.full_name && il.assignedAgentName.toLowerCase().includes(user.user_metadata.full_name.toLowerCase()))
-      );
-    }
+    if (isSalesOrStaff) return scopedImportedLeads;
     if (roleMode === 'Admin') return scopedImportedLeads;
     return scopedImportedLeads.filter(il => il.assignedAgentId === currentAgentId);
-  }, [scopedImportedLeads, roleMode, currentAgentId, isSalesOrStaff, user?.id, user?.user_metadata?.full_name]);
+  }, [scopedImportedLeads, roleMode, currentAgentId, isSalesOrStaff]);
 
   // Performance calculation
   const agentPerformances: AgentPerformance[] = useMemo(() => {
@@ -492,12 +787,13 @@ export function useCallingDataStore() {
   // Workflow Action 1: Upload Numbers CSV (Admin)
   const uploadNumbers = useCallback((rawNumbers: string[], sourceName: string = 'CSV Import') => {
     const now = new Date();
+    const currentAdminId = user?.id || profile?.id || activeAdminUserId;
     const newItems: CallingNumber[] = rawNumbers.map((phone) => ({
       id: crypto.randomUUID(),
       phone: phone.trim(),
       source: 'CSV Upload' as any,
       status: 'Available',
-      adminId: user?.id || activeAdminUserId,
+      adminId: currentAdminId,
       adminEmail: currentUserEmail,
       ownerAdminEmail: currentUserEmail,
       shopId: activeShopId,
@@ -511,7 +807,7 @@ export function useCallingDataStore() {
       const rows = newItems.map((n) => ({
         id: n.id,
         shop_id: activeShopId,
-        admin_user_id: activeAdminUserId,
+        admin_user_id: currentAdminId,
         phone_number: n.phone,
         source: 'CSV Import',
         data_type: 'Raw Data',
@@ -525,15 +821,23 @@ export function useCallingDataStore() {
     }
 
     return newItems.length;
-  }, [activeAdminUserId, activeShopId]);
+  }, [activeAdminUserId, activeShopId, currentUserEmail, user?.id, profile?.id]);
 
   // Workflow Action 2: Allocate available or unallocated pool numbers to selected agents
   const allocateNumbersToAgents = useCallback((targetAgentIds: string[], countPerAgent: number = 250) => {
     const now = new Date();
     const allocatedDate = now.toISOString().split('T')[0];
     const expiryDate = new Date(now.getTime() + 30 * 86400000).toISOString().split('T')[0];
-    const allocatedIds: string[] = [];
-    const allocatedPhones: string[] = [];
+    const activeAgentsList = agents.length > 0 ? agents : getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess);
+
+    const allocationsToPersist: Array<{
+      agentId: string;
+      agentName: string;
+      allocatedDate: string;
+      expiryDate: string;
+      ids: string[];
+      phones: string[];
+    }> = [];
 
     setNumbers(prev => {
       const copy = [...prev];
@@ -543,24 +847,39 @@ export function useCallingDataStore() {
       }
 
       let poolIdx = 0;
-      const activeAgentsList = agents.length > 0 ? agents : getDynamicAgents(currentUserEmail, isSuperAdmin, hasExplicitDataAccess);
       targetAgentIds.forEach(agId => {
-        const ag = activeAgentsList.find(a => a.id === agId) || getDynamicAgents(currentUserEmail, isSuperAdmin, hasExplicitDataAccess).find(a => a.id === agId);
+        const ag = activeAgentsList.find(a => a.id === agId) || getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess).find(a => a.id === agId);
         if (!ag) return;
+
+        const agentAllocatedIds: string[] = [];
+        const agentAllocatedPhones: string[] = [];
 
         for (let c = 0; c < countPerAgent && poolIdx < pool.length; c++) {
           const item = pool[poolIdx++];
           item.status = 'Allocated';
           item.agentId = ag.id;
           item.agentName = ag.name;
+          item.agentEmail = ag.email;
           item.allocatedDate = allocatedDate;
           item.expiryDate = expiryDate;
           item.allocationStatus = 'Active';
           if (item.id && item.id.length === 36 && item.id.includes('-')) {
-            allocatedIds.push(item.id);
+            agentAllocatedIds.push(item.id);
           } else {
-            allocatedPhones.push(item.phone);
+            agentAllocatedPhones.push(item.phone);
           }
+        }
+
+        if (agentAllocatedIds.length > 0 || agentAllocatedPhones.length > 0) {
+          allocationsToPersist.push({
+            agentId: ag.id,
+            agentName: ag.name,
+            agentEmail: ag.email,
+            allocatedDate,
+            expiryDate,
+            ids: agentAllocatedIds,
+            phones: agentAllocatedPhones,
+          });
         }
       });
 
@@ -568,26 +887,36 @@ export function useCallingDataStore() {
     });
 
     try {
-      if (allocatedIds.length > 0) {
-        supabase.from('calling_data_inventory')
-          .update({ status: 'Allocated', updated_at: new Date().toISOString() })
-          .in('id', allocatedIds)
-          .then(({ error }) => {
-            if (error) console.error('Supabase allocate error:', error.message, error);
-          });
-      }
-      if (allocatedPhones.length > 0) {
-        supabase.from('calling_data_inventory')
-          .update({ status: 'Allocated', updated_at: new Date().toISOString() })
-          .in('phone_number', allocatedPhones)
-          .then(({ error }) => {
-            if (error) console.error('Supabase allocate error by phone:', error.message, error);
-          });
-      }
+      allocationsToPersist.forEach(alloc => {
+        const notesPayload = JSON.stringify({
+          agentId: alloc.agentId,
+          agentName: alloc.agentName,
+          agentEmail: alloc.agentEmail,
+          allocatedDate: alloc.allocatedDate,
+          expiryDate: alloc.expiryDate,
+        });
+
+        if (alloc.ids.length > 0) {
+          supabase.from('calling_data_inventory')
+            .update({ status: 'Allocated', notes: notesPayload, updated_at: new Date().toISOString() })
+            .in('id', alloc.ids)
+            .then(({ error }) => {
+              if (error) console.error('Supabase allocate error:', error.message, error);
+            });
+        }
+        if (alloc.phones.length > 0) {
+          supabase.from('calling_data_inventory')
+            .update({ status: 'Allocated', notes: notesPayload, updated_at: new Date().toISOString() })
+            .in('phone_number', alloc.phones)
+            .then(({ error }) => {
+              if (error) console.error('Supabase allocate error by phone:', error.message, error);
+            });
+        }
+      });
     } catch (e) {
       console.error('Supabase allocate catch:', e);
     }
-  }, []);
+  }, [agents, currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   // Workflow Action 3: Log Call (Agent makes call & logs status)
   const logCall = useCallback((payload: {
@@ -853,8 +1182,9 @@ export function useCallingDataStore() {
     const targetImp = importedLeads.find(i => i.id === importedLeadId);
     if (!targetImp) return;
 
-    const availableAgents = agents.length > 0 ? agents : getDynamicAgents();
+    const availableAgents = agents.length > 0 ? agents : getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess);
     const ag = availableAgents.find(a => a.id === targetAgentId) || availableAgents[0];
+    if (!ag) return;
 
     // 1. Mark imported lead assigned
     setImportedLeads(prev =>
@@ -876,33 +1206,36 @@ export function useCallingDataStore() {
     };
 
     setLeads(prev => [newLead, ...prev]);
-  }, [importedLeads, agents]);
+  }, [importedLeads, agents, currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   // Workflow Action 6: Auto assign pending imported leads round-robin
   const autoAssignImportedLeads = useCallback(() => {
     const pending = importedLeads.filter(i => i.status === 'Pending');
     if (pending.length === 0) return;
 
-    const availableAgents = agents.length > 0 ? agents : getDynamicAgents();
+    const availableAgents = agents.length > 0 ? agents : getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess);
+    if (availableAgents.length === 0) return;
     pending.forEach((imp, idx) => {
       const assignedAg = availableAgents[idx % availableAgents.length];
       assignImportedLead(imp.id, assignedAg.id);
     });
-  }, [importedLeads, assignImportedLead, agents]);
+  }, [importedLeads, assignImportedLead, agents, currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   // Workflow Action 7: Return allocated calling number back to Admin Pool
   const returnToAdminPool = useCallback((callingNumberId: string, reason: string = 'Returned to Admin Pool') => {
-    const num = numbers.find(n => n.id === callingNumberId);
+    const num = numbers.find(n => n.id === callingNumberId || n.phone === callingNumberId);
     if (!num) return;
 
     setNumbers(prev =>
       prev.map(n => {
-        if (n.id === callingNumberId) {
+        if (n.id === callingNumberId || n.phone === callingNumberId) {
           return {
             ...n,
             status: 'Available',
             agentId: undefined,
             agentName: undefined,
+            allocatedDate: undefined,
+            expiryDate: undefined,
             allocationStatus: 'Returned',
             lastCallNotes: `Returned to Admin Pool: ${reason}`,
             lastCallStatus: 'Escalate to Admin',
@@ -915,8 +1248,8 @@ export function useCallingDataStore() {
     try {
       const isUuid = num.id && num.id.length === 36 && num.id.includes('-');
       const query = isUuid
-        ? supabase.from('calling_data_inventory').update({ status: 'Available', updated_at: new Date().toISOString() }).eq('id', num.id)
-        : supabase.from('calling_data_inventory').update({ status: 'Available', updated_at: new Date().toISOString() }).eq('phone_number', num.phone);
+        ? supabase.from('calling_data_inventory').update({ status: 'Available', notes: null, updated_at: new Date().toISOString() }).eq('id', num.id)
+        : supabase.from('calling_data_inventory').update({ status: 'Available', notes: null, updated_at: new Date().toISOString() }).eq('phone_number', num.phone);
 
       query.then(({ error }) => {
         if (error) console.error('Supabase returnToAdminPool error:', error.message, error);
@@ -928,22 +1261,26 @@ export function useCallingDataStore() {
 
   // Workflow Action 8: Reassign a single number to a specific agent
   const reassignNumberToAgent = useCallback((callingNumberId: string, targetAgentId: string) => {
-    const availableAgents = agents.length > 0 ? agents : getDynamicAgents();
-    const targetAgent = availableAgents.find(a => a.id === targetAgentId) || getDynamicAgents().find(a => a.id === targetAgentId);
+    const availableAgents = agents.length > 0 ? agents : getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess);
+    const targetAgent = availableAgents.find(a => a.id === targetAgentId) || getDynamicAgents(currentUserEmail, isSuperAdmin, hasSharedAgentsAccess).find(a => a.id === targetAgentId);
     if (!targetAgent) return;
 
-    const targetNum = numbers.find(n => n.id === callingNumberId);
+    const targetNum = numbers.find(n => n.id === callingNumberId || n.phone === callingNumberId);
+    const allocatedDate = new Date().toISOString().split('T')[0];
+    const expiryDate = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
 
     setNumbers(prev =>
       prev.map(n => {
-        if (n.id === callingNumberId) {
+        if (n.id === callingNumberId || n.phone === callingNumberId) {
           return {
             ...n,
             status: 'Allocated',
             agentId: targetAgent.id,
             agentName: targetAgent.name,
+            agentEmail: targetAgent.email,
             allocationStatus: 'Active',
-            allocatedDate: new Date().toISOString().split('T')[0],
+            allocatedDate,
+            expiryDate,
           };
         }
         return n;
@@ -952,10 +1289,19 @@ export function useCallingDataStore() {
 
     try {
       if (targetNum) {
+        const notesPayload = JSON.stringify({
+          agentId: targetAgent.id,
+          agentName: targetAgent.name,
+          agentEmail: targetAgent.email,
+          allocatedDate,
+          expiryDate,
+          userNotes: targetNum.lastCallNotes || undefined,
+        });
+
         const isUuid = targetNum.id && targetNum.id.length === 36 && targetNum.id.includes('-');
         const query = isUuid
-          ? supabase.from('calling_data_inventory').update({ status: 'Allocated', updated_at: new Date().toISOString() }).eq('id', targetNum.id)
-          : supabase.from('calling_data_inventory').update({ status: 'Allocated', updated_at: new Date().toISOString() }).eq('phone_number', targetNum.phone);
+          ? supabase.from('calling_data_inventory').update({ status: 'Allocated', notes: notesPayload, updated_at: new Date().toISOString() }).eq('id', targetNum.id)
+          : supabase.from('calling_data_inventory').update({ status: 'Allocated', notes: notesPayload, updated_at: new Date().toISOString() }).eq('phone_number', targetNum.phone);
 
         query.then(({ error }) => {
           if (error) console.error('Supabase reassignNumberToAgent error:', error.message, error);
@@ -964,7 +1310,7 @@ export function useCallingDataStore() {
     } catch (e) {
       console.error('Supabase reassign error:', e);
     }
-  }, [numbers, agents]);
+  }, [numbers, agents, currentUserEmail, isSuperAdmin, hasSharedAgentsAccess]);
 
   // Workflow Action 9: Quick Convert Number to Target (Lead, Trial, Sales, Renewal, Denied, Admin)
   const convertNumberToTarget = useCallback((

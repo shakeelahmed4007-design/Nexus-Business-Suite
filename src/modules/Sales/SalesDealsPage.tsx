@@ -91,7 +91,7 @@ export function SalesDealsPage() {
         <Card className="p-4 bg-gradient-to-br from-brand-50 to-indigo-50/50 dark:from-brand-950/20 dark:to-indigo-950/20 border-brand-200/80 dark:border-brand-800/40">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white shadow-md font-bold">
-              💰
+              Rs
             </div>
             <div>
               <p className="text-xs font-semibold text-brand-800 dark:text-brand-300">Total Converted Revenue</p>

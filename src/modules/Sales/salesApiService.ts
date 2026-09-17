@@ -195,33 +195,41 @@ function getEmojiForCategory(cat: string): string {
 
 // ----------------------------------------------------------------------------
 // ORDERS
-// ----------------------------------------------------------------------------
+let seedAttempted = false;
+
 export async function fetchOrdersApi(shopId: string = 'admin@nexus.com'): Promise<Order[]> {
-  const isSuperAdminWorkspace = (shopId || '').toLowerCase().trim() === 'admin@nexus.com' || (shopId || '').toLowerCase().trim() === 'shop-001';
+  const cleanShopId = (shopId || 'admin@nexus.com').trim();
+  const isSuperAdminWorkspace = cleanShopId.toLowerCase() === 'admin@nexus.com' || cleanShopId.toLowerCase() === 'shop-001';
   try {
-    const res = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(shopId)}`);
+    const res = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(cleanShopId)}`);
     if (res.ok) {
       const json = await res.json();
-      if (json.success && Array.isArray(json.orders) && json.orders.length > 0) {
-        return json.orders.map((o: any) => ({
-          id: o.order_id ? `ORD-${o.order_id.slice(0, 5).toUpperCase()}` : o.id,
-          raw_id: o.order_id || o.id,
-          customer: o.customer_id || o.customer || 'Walk-in Customer',
-          date: o.order_date ? new Date(o.order_date).toISOString().split('T')[0] : o.date || 'Today',
-          items: Array.isArray(o.order_items) ? o.order_items.length : Number(o.items || 1),
-          total: Number(o.total_amount || o.total || 0),
-          channel: o.order_type || o.channel || 'POS Store',
-          payment: o.payment_status === 'Paid' ? 'Paid' : (o.payment_status === 'Partial' ? 'Partial' : 'Unpaid'),
-          status: mapOrderStatus(o.status || o.order_status),
-        }));
+      if (json.success && Array.isArray(json.orders)) {
+        if (json.orders.length > 0) {
+          return json.orders.map((o: any) => ({
+            id: o.order_id ? `ORD-${o.order_id.slice(0, 5).toUpperCase()}` : o.id,
+            raw_id: o.order_id || o.id,
+            customer: o.customer_id || o.customer || 'Walk-in Customer',
+            date: o.order_date ? new Date(o.order_date).toISOString().split('T')[0] : o.date || 'Today',
+            items: Array.isArray(o.order_items) ? o.order_items.length : Number(o.items || 1),
+            total: Number(o.total_amount || o.total || 0),
+            channel: o.order_type || o.channel || 'POS Store',
+            payment: o.payment_status === 'Paid' ? 'Paid' : (o.payment_status === 'Partial' ? 'Partial' : 'Unpaid'),
+            status: mapOrderStatus(o.status || o.order_status),
+          }));
+        } else if (!isSuperAdminWorkspace) {
+          // Isolated Admin workspace has 0 orders: return empty list, NEVER auto-seed Super Admin demo orders!
+          return [];
+        }
       }
     }
 
-    if (isSuperAdminWorkspace) {
-      // Auto-seed initial orders if empty
-      await seedInitialOrders(shopId);
+    if (isSuperAdminWorkspace && !seedAttempted) {
+      seedAttempted = true;
+      // Auto-seed initial orders once if Super Admin has completely empty orders
+      await seedInitialOrders(cleanShopId);
 
-      const reFetch = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(shopId)}`);
+      const reFetch = await fetch(`${BACKEND_URL}/orders?shop_id=${encodeURIComponent(cleanShopId)}`);
       if (reFetch.ok) {
         const json = await reFetch.json();
         if (json.success && Array.isArray(json.orders) && json.orders.length > 0) {
@@ -255,9 +263,9 @@ async function seedInitialOrders(shopId: string) {
         body: JSON.stringify({
           shop_id: shopId,
           customer_id: ord.customer,
-          order_type: ord.channel,
-          payment_status: ord.payment === 'Paid' ? 'Paid' : 'Unpaid',
-          order_status: ord.status,
+          order_type: ord.channel === 'POS' ? 'POS' : 'Sale',
+          payment_status: ord.payment === 'Paid' ? 'Paid' : (ord.payment === 'Partial' ? 'Partial' : 'Pending'),
+          order_status: ord.status === 'Processing' ? 'Confirmed' : (['Pending', 'Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled'].includes(ord.status) ? ord.status : 'Pending'),
           items: [
             {
               product_name: 'Sample Product',

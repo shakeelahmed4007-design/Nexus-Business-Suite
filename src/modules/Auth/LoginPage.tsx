@@ -143,7 +143,7 @@ export function LoginPage() {
 
       {/* Main Container Card */}
       <div className="relative z-10 max-w-md w-full space-y-6 bg-white p-8 sm:p-10 rounded-3xl border border-ink-200/80 shadow-2xl shadow-brand-900/5">
-        
+
         {/* Brand Header */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-gradient-to-br from-brand-600 to-brand-500 rounded-2xl text-white shadow-lg shadow-brand-500/25 mb-1">
@@ -157,41 +157,6 @@ export function LoginPage() {
           </p>
         </div>
 
-        {/* Navigation Tabs between Login and Sign Up */}
-        {mode !== 'forgot' && (
-          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-ink-50/80 p-1 border border-ink-200/60">
-            <button
-              type="button"
-              onClick={() => {
-                setMode('login');
-                setError(null);
-                setSuccessMsg(null);
-              }}
-              className={`flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-xl transition-all ${
-                mode === 'login'
-                  ? 'bg-white text-brand-700 shadow-sm'
-                  : 'text-ink-500 hover:text-ink-800'
-              }`}
-            >
-              <LogIn className="w-3.5 h-3.5" /> Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('signup');
-                setError(null);
-                setSuccessMsg(null);
-              }}
-              className={`flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-xl transition-all ${
-                mode === 'signup'
-                  ? 'bg-white text-brand-700 shadow-sm'
-                  : 'text-ink-500 hover:text-ink-800'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" /> Sign Up
-            </button>
-          </div>
-        )}
 
         {/* Error Alert */}
         {error && (

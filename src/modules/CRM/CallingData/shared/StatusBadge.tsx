@@ -13,9 +13,11 @@ export function StatusBadge({ status, variant = 'lead', remainingMonths, daysUnt
   if (variant === 'calling') {
     switch (status) {
       case 'Available':
+      case 'Unassigned':
         color = 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20';
         break;
       case 'Allocated':
+      case 'Assigned':
         color = 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/20';
         break;
       case 'Used':

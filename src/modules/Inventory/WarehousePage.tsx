@@ -38,11 +38,18 @@ export function WarehousePage() {
     { key: 'date', header: 'Date', render: (m) => <span className="text-xs text-ink-500">{m.date}</span> },
   ];
 
+  if (!hasAccess) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Warehouse Management" subtitle="Visualize bin locations, racks, and inventory movements." />
+        <AccessPendingBanner title="Warehouse Access Required" subtitle="You do not have permission to view this module. Please contact your administrator." />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Warehouse Management" subtitle="Visualize bin locations, racks, and inventory movements." />
-
-      {!hasAccess && <AccessPendingBanner />}
 
       {/* Warehouse selector cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

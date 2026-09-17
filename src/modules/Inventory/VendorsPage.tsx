@@ -39,6 +39,15 @@ export function VendorsPage() {
     { key: 'status', header: 'Status', render: (v) => <Badge tone={statusTones[v.status]}>{v.status}</Badge> },
   ];
 
+  if (!hasAccess) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Vendor Management" subtitle="Manage suppliers, track performance, and monitor relationships." />
+        <AccessPendingBanner title="Vendors Access Required" subtitle="You do not have permission to view this module. Please contact your administrator." />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Vendor Management" subtitle="Manage suppliers, track performance, and monitor relationships.">
@@ -47,8 +56,6 @@ export function VendorsPage() {
           {view === 'grid' ? 'Table' : 'Grid'}
         </button>
       </PageHeader>
-
-      {!hasAccess && <AccessPendingBanner />}
 
       {view === 'grid' ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

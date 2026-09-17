@@ -7,7 +7,6 @@ import {
   Briefcase,
   Trash2,
   Lock,
-  ShieldAlert,
   CheckCircle2,
   X,
   ChevronDown,
@@ -66,10 +65,6 @@ export function TeamManagementPage() {
     Intelligence: true,
   });
 
-  useEffect(() => {
-    refreshList();
-  }, []);
-
   const currentUserEmail = (user?.email || profile?.email || '').toLowerCase().trim();
   const currentRole = (profile?.role || user?.user_metadata?.role || '').toLowerCase().trim();
   const isSuperAdmin = currentRole === 'super_admin' || (currentUserEmail !== '' && (currentUserEmail === 'admin@nexus.com' || currentUserEmail === 'superadmin@nexus.com' || currentUserEmail.includes('superadmin')));
@@ -86,7 +81,10 @@ export function TeamManagementPage() {
 
     if (isSuperAdmin) {
       // 1. Super Admin level: Hide staff/sales created by regular Admins
-      if (itemCreatorRole === 'ADMIN') return false;
+      if (itemCreatorRole === 'ADMIN' || itemCreatorRole === 'SHOP_ADMIN') return false;
+      if (itemCreatorEmail && itemCreatorEmail !== 'admin@nexus.com' && itemCreatorEmail !== 'superadmin@nexus.com') {
+        return false;
+      }
       return true;
     } else {
       // 2. Admin level: Hide staff/sales created by Super Admin
@@ -101,23 +99,6 @@ export function TeamManagementPage() {
     }
   };
 
-  const isSalesOrStaff = currentRole === 'sales' || currentRole === 'staff' || currentRole === 'agent';
-
-  if (isSalesOrStaff) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-white dark:bg-ink-900 rounded-2xl border border-ink-200 dark:border-ink-800 m-6 shadow-xs">
-        <ShieldAlert className="w-12 h-12 text-amber-500 mb-3" />
-        <h2 className="text-lg font-bold text-ink-900 dark:text-ink-100">Access Restricted</h2>
-        <p className="text-sm text-ink-500 max-w-md mt-1">
-          Staff and Sales agents do not have permission to manage team members or configure access permissions.
-        </p>
-        <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-brand-600 text-white rounded-xl text-xs font-semibold hover:bg-brand-700 transition-all cursor-pointer">
-          Return to Dashboard
-        </button>
-      </div>
-    );
-  }
-
   const refreshList = () => {
     const all = getAdmins();
     const isolatedList = all.filter(isMemberAllowedForCurrentUser);
@@ -126,6 +107,11 @@ export function TeamManagementPage() {
       setTeamList(latest.filter(isMemberAllowedForCurrentUser));
     });
   };
+
+  useEffect(() => {
+    refreshList();
+  }, []);
+
 
   const handleToggleStatus = (memberId: string) => {
     const nextState = toggleAdminDataAccess(memberId);

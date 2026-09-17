@@ -61,11 +61,18 @@ export function StockPage() {
     { key: 'by', header: 'By', render: (m) => <span className="text-xs text-ink-500">{m.by}</span> },
   ];
 
+  if (!hasAccess) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Stock Management" subtitle="Monitor inventory levels, movements, and alerts." />
+        <AccessPendingBanner title="Stock Access Required" subtitle="You do not have permission to view this module. Please contact your administrator." />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader title="Stock Management" subtitle="Monitor inventory levels, movements, and alerts." />
-
-      {!hasAccess && <AccessPendingBanner />}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <KpiCard label="Total SKUs" value={totalItems} icon={Boxes} accent="brand" delay={0} />

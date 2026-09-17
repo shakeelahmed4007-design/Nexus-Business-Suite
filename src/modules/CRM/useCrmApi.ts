@@ -298,13 +298,14 @@ const DEMO_TASKS: ApiTask[] = [];
 const DEMO_CALLING: ApiCallingData[] = [];
 
 // Helper to format lead row from Supabase
-function formatLeadRow(row: any): ApiLead {
+function formatLeadRow(row: any, fallbackOwner?: string): ApiLead {
+  const defaultOwner = fallbackOwner || 'admin@nexus.com';
   return {
     id: row.id,
     shopId: row.shop_id,
     createdById: row.created_by_id,
-    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
-    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || defaultOwner,
+    createdByEmail: row.created_by_email || defaultOwner,
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     email: row.email || '',
@@ -321,13 +322,14 @@ function formatLeadRow(row: any): ApiLead {
 }
 
 // Helper to format customer row from Supabase
-function formatCustomerRow(row: any): ApiCustomer {
+function formatCustomerRow(row: any, fallbackOwner?: string): ApiCustomer {
   const type = row.customer_type || 'Regular';
+  const defaultOwner = fallbackOwner || 'admin@nexus.com';
   return {
     id: row.id,
     shopId: row.shop_id,
-    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
-    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || defaultOwner,
+    createdByEmail: row.created_by_email || defaultOwner,
     firstName: row.first_name || '',
     lastName: row.last_name || '',
     email: row.email || '',
@@ -343,8 +345,9 @@ function formatCustomerRow(row: any): ApiCustomer {
 }
 
 // Helper to format task row from Supabase
-function formatTaskRow(row: any): ApiTask {
+function formatTaskRow(row: any, fallbackOwner?: string): ApiTask {
   const st = row.status || row.task_type || 'Not Started';
+  const defaultOwner = fallbackOwner || 'admin@nexus.com';
   return {
     id: row.id,
     title: row.title || '',
@@ -354,8 +357,8 @@ function formatTaskRow(row: any): ApiTask {
     priority: row.priority || 'Medium',
     dueDate: row.due_date || new Date().toISOString(),
     assignedToUserId: row.assigned_to_user_id,
-    ownerAdminEmail: row.owner_admin_email || row.created_by_email || 'admin@nexus.com',
-    createdByEmail: row.created_by_email || 'admin@nexus.com',
+    ownerAdminEmail: row.owner_admin_email || row.created_by_email || defaultOwner,
+    createdByEmail: row.created_by_email || defaultOwner,
     createdAt: row.created_at || new Date().toISOString(),
   };
 }
@@ -400,7 +403,8 @@ function getCallingLeadsAsApiLeads(ownerAdminEmail: string, isSuperAdmin: boolea
       const leadAdmin = (l.adminEmail || l.ownerAdminEmail || '').toLowerCase().trim();
       const isSuperLead = !leadAdmin || leadAdmin === 'admin@nexus.com' || leadAdmin === 'superadmin@nexus.com';
 
-      if (isSuperAdmin || hasExplicitAccess) return true;
+      if (isSuperAdmin) return isSuperLead;
+      if (hasExplicitAccess) return true;
       if (isSuperLead) return false;
       return leadAdmin === ownerAdminEmail;
     });
@@ -457,7 +461,8 @@ function getCallingSalesAsApiCustomers(ownerAdminEmail: string, isSuperAdmin: bo
       const leadAdmin = (l.adminEmail || l.ownerAdminEmail || '').toLowerCase().trim();
       const isSuperLead = !leadAdmin || leadAdmin === 'admin@nexus.com' || leadAdmin === 'superadmin@nexus.com';
 
-      if (isSuperAdmin || hasExplicitAccess) return true;
+      if (isSuperAdmin) return isSuperLead;
+      if (hasExplicitAccess) return true;
       if (isSuperLead) return false;
       return leadAdmin === ownerAdminEmail;
     });
@@ -507,11 +512,12 @@ export function useLeads() {
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
   const filterByWorkspace = useCallback((items: ApiLead[]): ApiLead[] => {
+    if (isSuperAdminWorkspace) return items;
     return items.filter((item) => {
-      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
-      return itemOwner === ownerAdminEmail;
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || '').toLowerCase().trim();
+      return !itemOwner || itemOwner === ownerAdminEmail || itemOwner === 'admin@nexus.com';
     });
-  }, [ownerAdminEmail]);
+  }, [ownerAdminEmail, isSuperAdminWorkspace]);
 
   const [leads, setLeads] = useState<ApiLead[]>(() => {
     const cached = getLocalCache<ApiLead[]>(localKey, []);
@@ -541,7 +547,7 @@ export function useLeads() {
         .order('created_at', { ascending: false });
 
       if (!sbErr && Array.isArray(data) && data.length > 0) {
-        const formatted = data.map(formatLeadRow);
+        const formatted = data.map((r) => formatLeadRow(r, ownerAdminEmail));
         baseLeads = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
       } else {
         baseLeads = getLocalCache<ApiLead[]>(localKey, isSuperAdminWorkspace ? DEMO_LEADS : []);
@@ -560,7 +566,9 @@ export function useLeads() {
 
     const mergedAll = [...scoped, ...uniqueCalling];
     setLeads(mergedAll);
-    setLocalCache(localKey, mergedAll);
+    if (mergedAll.length > 0) {
+      setLocalCache(localKey, mergedAll);
+    }
     setLoading(false);
   }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail, isSuperAdmin, hasExplicitAccess]);
 
@@ -648,7 +656,9 @@ export function useLeads() {
 
   const deleteLead = async (id: string) => {
     try {
-      await supabase.from('leads').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (getSafeUuid(id, '') === id) {
+        await supabase.from('leads').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      }
     } catch { }
     setLeads((prev) => {
       const updated = prev.filter((l) => l.id !== id);
@@ -659,7 +669,9 @@ export function useLeads() {
 
   const updateLeadStatus = async (id: string, status: string) => {
     try {
-      await supabase.from('leads').update({ lead_status: status, updated_at: new Date().toISOString() }).eq('id', id);
+      if (getSafeUuid(id, '') === id) {
+        await supabase.from('leads').update({ lead_status: status, updated_at: new Date().toISOString() }).eq('id', id);
+      }
     } catch { }
     setLeads((prev) => {
       const updated = prev.map((l) => (l.id === id ? { ...l, leadStatus: status } : l));
@@ -686,11 +698,12 @@ export function useCustomers() {
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
   const filterByWorkspace = useCallback((items: ApiCustomer[]): ApiCustomer[] => {
+    if (isSuperAdminWorkspace) return items;
     return items.filter((item) => {
-      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
-      return itemOwner === ownerAdminEmail;
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || '').toLowerCase().trim();
+      return !itemOwner || itemOwner === ownerAdminEmail || itemOwner === 'admin@nexus.com';
     });
-  }, [ownerAdminEmail]);
+  }, [ownerAdminEmail, isSuperAdminWorkspace]);
 
   const [customers, setCustomers] = useState<ApiCustomer[]>(() => {
     const cached = getLocalCache<ApiCustomer[]>(localKey, []);
@@ -720,7 +733,7 @@ export function useCustomers() {
         .order('created_at', { ascending: false });
 
       if (!sbErr && Array.isArray(data) && data.length > 0) {
-        const formatted = data.map(formatCustomerRow);
+        const formatted = data.map((r) => formatCustomerRow(r, ownerAdminEmail));
         baseCustomers = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
       } else {
         baseCustomers = getLocalCache<ApiCustomer[]>(localKey, isSuperAdminWorkspace ? DEMO_CUSTOMERS : []);
@@ -739,7 +752,9 @@ export function useCustomers() {
 
     const mergedAll = [...scoped, ...uniqueCalling];
     setCustomers(mergedAll);
-    setLocalCache(localKey, mergedAll);
+    if (mergedAll.length > 0) {
+      setLocalCache(localKey, mergedAll);
+    }
     setLoading(false);
   }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail, isSuperAdmin, hasExplicitAccess]);
 
@@ -819,7 +834,9 @@ export function useCustomers() {
 
   const deleteCustomer = async (id: string) => {
     try {
-      await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (getSafeUuid(id, '') === id) {
+        await supabase.from('customers').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      }
     } catch { }
     setCustomers((prev) => {
       const updated = prev.filter((c) => c.id !== id);
@@ -842,11 +859,12 @@ export function useTasks() {
   const isSuperAdminWorkspace = ownerAdminEmail === 'admin@nexus.com';
 
   const filterByWorkspace = useCallback((items: ApiTask[]): ApiTask[] => {
+    if (isSuperAdminWorkspace) return items;
     return items.filter((item) => {
-      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || 'admin@nexus.com').toLowerCase().trim();
-      return itemOwner === ownerAdminEmail;
+      const itemOwner = (item.ownerAdminEmail || item.createdByEmail || '').toLowerCase().trim();
+      return !itemOwner || itemOwner === ownerAdminEmail || itemOwner === 'admin@nexus.com';
     });
-  }, [ownerAdminEmail]);
+  }, [ownerAdminEmail, isSuperAdminWorkspace]);
 
   const [tasks, setTasks] = useState<ApiTask[]>(() => {
     const cached = getLocalCache<ApiTask[]>(localKey, []);
@@ -868,11 +886,13 @@ export function useTasks() {
         .order('created_at', { ascending: false });
 
       if (!sbErr && Array.isArray(data) && data.length > 0) {
-        const formatted = data.map(formatTaskRow);
+        const formatted = data.map((r) => formatTaskRow(r, ownerAdminEmail));
         const merged = mergeWithLocal(formatted, localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
         const scoped = filterByWorkspace(merged);
         setTasks(scoped);
-        setLocalCache(localKey, scoped);
+        if (scoped.length > 0) {
+          setLocalCache(localKey, scoped);
+        }
         setLoading(false);
         return;
       }
@@ -883,9 +903,11 @@ export function useTasks() {
     const cached = getLocalCache<ApiTask[]>(localKey, isSuperAdminWorkspace ? DEMO_TASKS : []);
     const scoped = filterByWorkspace(cached);
     setTasks(scoped);
-    setLocalCache(localKey, scoped);
+    if (scoped.length > 0) {
+      setLocalCache(localKey, scoped);
+    }
     setLoading(false);
-  }, [localKey, isSuperAdminWorkspace, filterByWorkspace]);
+  }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail]);
 
   useEffect(() => { fetchTasks(); }, [fetchTasks]);
 
@@ -945,7 +967,9 @@ export function useTasks() {
 
   const completeTask = async (id: string) => {
     try {
-      await supabase.from('tasks').update({ status: 'Completed', completion_date: new Date().toISOString() }).eq('id', id);
+      if (getSafeUuid(id, '') === id) {
+        await supabase.from('tasks').update({ status: 'Completed', completion_date: new Date().toISOString() }).eq('id', id);
+      }
     } catch { }
     setTasks((prev) => {
       const updated = prev.map((t) => (t.id === id ? { ...t, taskStatus: 'Completed', status: 'Completed' } : t));
@@ -956,7 +980,9 @@ export function useTasks() {
 
   const deleteTask = async (id: string) => {
     try {
-      await supabase.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (getSafeUuid(id, '') === id) {
+        await supabase.from('tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      }
     } catch { }
     setTasks((prev) => {
       const updated = prev.filter((t) => t.id !== id);
