@@ -37,6 +37,7 @@ export const MODULE_CATEGORIES: ModuleCategory[] = [
       { key: 'invoices', name: 'Invoices & Billing', legacyKey: 'invoices' },
       { key: 'payments', name: 'Payments', legacyKey: 'payments' },
       { key: 'purchases', name: 'Purchases', legacyKey: 'purchases' },
+      { key: 'credit_management', name: 'Credit Management', legacyKey: 'credit-management' },
     ],
   },
   {

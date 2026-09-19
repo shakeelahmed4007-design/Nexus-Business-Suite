@@ -91,6 +91,7 @@ function SidebarContent({
     '/invoices': 'invoices',
     '/payments': 'payments',
     '/purchases': 'purchases',
+    '/credit-management': 'pos',
     '/stock': 'stock',
     '/warehouse': 'warehouse',
     '/vendors': 'vendors',
@@ -108,6 +109,12 @@ function SidebarContent({
     }
     if (n.path === '/overview/team-management' || n.path === '/team-management') {
       return !isSalesOrStaff && (isSuperAdmin || cleanRole === 'admin' || cleanRole === 'shop_admin');
+    }
+    if (n.path === '/credit-management') {
+      const posFlags = getCrudFlags(permissions, 'pos');
+      const ordersFlags = getCrudFlags(permissions, 'orders');
+      const purchasesFlags = getCrudFlags(permissions, 'purchases');
+      return isSuperAdmin || cleanRole === 'admin' || cleanRole === 'shop_admin' || cleanRole === 'sales' || posFlags.access || ordersFlags.access || purchasesFlags.access;
     }
     if (isSuperAdmin) return true;
     const key = moduleKeyMap[n.path];

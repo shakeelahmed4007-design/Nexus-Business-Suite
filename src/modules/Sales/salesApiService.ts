@@ -1,5 +1,6 @@
 import { products as initialProducts, type Product } from '@/modules/Sales/products';
 import { orders as initialOrders, type Order } from '@/modules/Sales/orders';
+export type { Order };
 import { type Invoice } from '@/modules/Sales/invoices';
 import { type Payment } from '@/modules/Sales/payments';
 
@@ -8,6 +9,9 @@ const BACKEND_URL = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BA
 export interface PosCheckoutPayload {
   shop_id: string;
   customer_id?: string;
+  customer_phone?: string;
+  customer_email?: string;
+  customer_address?: string;
   items: Array<{
     product_id: string;
     product_name: string;

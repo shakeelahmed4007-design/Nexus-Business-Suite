@@ -251,8 +251,8 @@ export function TeamManagementPage() {
 
                       <td className="px-5 py-4">
                         <span className={`inline-flex items-center rounded-md px-2.5 py-1 text-xs font-bold uppercase ${u.role === 'sales'
-                            ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
-                            : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          ? 'bg-brand-100 text-brand-800 dark:bg-brand-950/60 dark:text-brand-300'
+                          : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
                           }`}>
                           {u.role.toUpperCase()}
                         </span>
@@ -542,8 +542,8 @@ export function TeamManagementPage() {
                                   <label
                                     onClick={() => handleEditActionToggle('can_create')}
                                     className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_create
-                                        ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300'
-                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                      ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/20 dark:text-brand-300'
+                                      : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                       }`}
                                   >
                                     Create
@@ -551,8 +551,8 @@ export function TeamManagementPage() {
                                   <label
                                     onClick={() => handleEditActionToggle('can_edit')}
                                     className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_edit
-                                        ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
-                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                      ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300'
+                                      : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                       }`}
                                   >
                                     Edit
@@ -560,8 +560,8 @@ export function TeamManagementPage() {
                                   <label
                                     onClick={() => handleEditActionToggle('can_delete')}
                                     className={`cursor-pointer rounded-lg border px-2 py-0.5 text-[10px] font-semibold ${flags.can_delete
-                                        ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
-                                        : 'border-ink-200 text-ink-400 dark:border-ink-800'
+                                      ? 'border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300'
+                                      : 'border-ink-200 text-ink-400 dark:border-ink-800'
                                       }`}
                                   >
                                     Delete

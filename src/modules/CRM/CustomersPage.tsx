@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Phone, Mail, MapPin, ShoppingBag, DollarSign, X, Star, Plus, Loader2, AlertCircle, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Phone, Mail, MapPin, ShoppingBag, DollarSign, X, Star, Plus, Loader2, AlertCircle, User, CreditCard } from 'lucide-react';
 import { PageHeader } from '@/shared/components/ui/PageHeader';
 import { Card } from '@/shared/components/ui/Card';
 import { Badge } from '@/shared/components/ui/Badge';
@@ -173,6 +174,24 @@ function CustomerDrawer({ customer, onClose }: { customer: ApiCustomer | null; o
                 <InfoRow icon={ShoppingBag} label="Customer Type" value={customer.customerType || 'Regular'} />
                 <InfoRow icon={Star} label="Member Since" value={new Date(customer.createdAt).toLocaleDateString()} />
               </div>
+
+              {/* Credit Status Card */}
+              <div className="mt-6 rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-500/20 dark:bg-brand-500/5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-brand-700 dark:text-brand-300 font-semibold text-sm">
+                    <CreditCard className="h-4 w-4" /> Credit Account
+                  </div>
+                  <span className="text-xs bg-brand-100 text-brand-800 px-2 py-0.5 rounded-full font-medium dark:bg-brand-500/20 dark:text-brand-300">
+                    Active
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-ink-500">
+                  Track credit limits, record partial installment repayments, and inspect transaction ledgers.
+                </p>
+                <div className="mt-4">
+                  <CustomerDrawerCreditButton customerId={customer.id} />
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>
@@ -188,6 +207,19 @@ function InfoRow({ icon: Icon, label, value }: { icon: typeof Phone; label: stri
       <span className="text-xs text-ink-400">{label}</span>
       <span className="ml-auto text-sm font-medium text-ink-800 dark:text-ink-100">{value}</span>
     </div>
+  );
+}
+
+function CustomerDrawerCreditButton({ customerId }: { customerId: string }) {
+  const navigate = useNavigate();
+  return (
+    <Button
+      className="w-full"
+      size="sm"
+      onClick={() => navigate(`/credit-management?tab=customers&customerId=${customerId}`)}
+    >
+      <CreditCard className="h-4 w-4" /> Manage Credit & Ledger
+    </Button>
   );
 }
 
@@ -212,6 +244,7 @@ function CustomerModal({ open, onClose, onSubmit }: {
       companyName: fd.get('companyName') as string || undefined,
       city: fd.get('city') as string || undefined,
       customerType: fd.get('customerType') as string || undefined,
+      creditLimit: fd.get('creditLimit') ? Number(fd.get('creditLimit')) : 0,
       notes: fd.get('notes') as string || undefined,
     };
     try {
@@ -259,6 +292,10 @@ function CustomerModal({ open, onClose, onSubmit }: {
               <option>Wholesale</option>
               <option>Retail</option>
             </select>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-ink-500">Credit Limit (PKR)</label>
+            <input name="creditLimit" type="number" className={inputCls} placeholder="e.g. 500000" defaultValue="0" />
           </div>
           <div className="sm:col-span-2">
             <label className="mb-1.5 block text-xs font-medium text-ink-500">Notes</label>

@@ -69,6 +69,7 @@ export interface CreateCustomerPayload {
   companyName?: string;
   city?: string;
   customerType?: string;
+  creditLimit?: number;
   notes?: string;
 }
 
@@ -81,6 +82,8 @@ export interface ApiTask {
   priority: string;
   dueDate?: string;
   assignedToUserId?: string;
+  assignedAgentName?: string;
+  assignedToEmail?: string;
   ownerAdminEmail?: string;
   createdByEmail?: string;
   createdAt: string;
@@ -93,6 +96,8 @@ export interface CreateTaskPayload {
   priority?: string;
   dueDate?: string;
   assignedToUserId?: string;
+  assignedAgentName?: string;
+  assignedToEmail?: string;
   linkedLeadId?: string;
   linkedCustomerId?: string;
 }
@@ -357,6 +362,8 @@ function formatTaskRow(row: any, fallbackOwner?: string): ApiTask {
     priority: row.priority || 'Medium',
     dueDate: row.due_date || new Date().toISOString(),
     assignedToUserId: row.assigned_to_user_id,
+    assignedAgentName: row.assigned_agent_name || row.assigned_to_name,
+    assignedToEmail: row.assigned_to_email,
     ownerAdminEmail: row.owner_admin_email || row.created_by_email || defaultOwner,
     createdByEmail: row.created_by_email || defaultOwner,
     createdAt: row.created_at || new Date().toISOString(),
@@ -909,7 +916,16 @@ export function useTasks() {
     setLoading(false);
   }, [localKey, isSuperAdminWorkspace, filterByWorkspace, ownerAdminEmail]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => {
+    fetchTasks();
+    const handleSync = () => fetchTasks();
+    window.addEventListener('nexus_crm_tasks_changed', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('nexus_crm_tasks_changed', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, [fetchTasks]);
 
   const createTask = async (payload: CreateTaskPayload) => {
     let newTask: ApiTask | null = null;
@@ -937,6 +953,8 @@ export function useTasks() {
         console.error('Supabase createTask error:', sbErr.message, sbErr);
       } else if (data) {
         newTask = formatTaskRow(data);
+        newTask.assignedAgentName = payload.assignedAgentName;
+        newTask.assignedToEmail = payload.assignedToEmail;
       }
     } catch (e: any) {
       console.error('createTask exception:', e);
@@ -948,8 +966,12 @@ export function useTasks() {
         title: payload.title,
         description: payload.description,
         taskStatus: payload.taskStatus || 'Not Started',
+        status: payload.taskStatus || 'Not Started',
         priority: payload.priority || 'Medium',
         dueDate: payload.dueDate || new Date().toISOString(),
+        assignedToUserId: payload.assignedToUserId,
+        assignedAgentName: payload.assignedAgentName,
+        assignedToEmail: payload.assignedToEmail,
         createdAt: new Date().toISOString(),
         ownerAdminEmail: ownerAdminEmail,
         createdByEmail: currentUserEmail,
@@ -961,6 +983,10 @@ export function useTasks() {
       setLocalCache(localKey, updated);
       return updated;
     });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('nexus_crm_tasks_changed'));
+    }
 
     return newTask;
   };
@@ -976,6 +1002,10 @@ export function useTasks() {
       setLocalCache(localKey, updated);
       return updated;
     });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('nexus_crm_tasks_changed'));
+    }
   };
 
   const deleteTask = async (id: string) => {
@@ -989,6 +1019,10 @@ export function useTasks() {
       setLocalCache(localKey, updated);
       return updated;
     });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('nexus_crm_tasks_changed'));
+    }
   };
 
   return { tasks, loading, error, createTask, completeTask, deleteTask, refetch: fetchTasks };

@@ -21,6 +21,7 @@ import { OrdersPage } from '@/modules/Sales/OrdersPage';
 import { InvoicesPage } from '@/modules/Sales/InvoicesPage';
 import { PaymentsPage } from '@/modules/Sales/PaymentsPage';
 import { PurchasesPage } from '@/modules/Sales/PurchasesPage';
+import { CreditManagementPage } from '@/modules/Sales/CreditManagementPage';
 import { StockPage } from '@/modules/Inventory/StockPage';
 import { WarehousePage } from '@/modules/Inventory/WarehousePage';
 import { VendorsPage } from '@/modules/Inventory/VendorsPage';
@@ -87,6 +88,7 @@ function App() {
                       <Route path="/invoices" element={<InvoicesPage />} />
                       <Route path="/payments" element={<PaymentsPage />} />
                       <Route path="/purchases" element={<PurchasesPage />} />
+                      <Route path="/credit-management" element={<CreditManagementPage />} />
                       <Route path="/stock" element={<StockPage />} />
                       <Route path="/warehouse" element={<WarehousePage />} />
                       <Route path="/vendors" element={<VendorsPage />} />

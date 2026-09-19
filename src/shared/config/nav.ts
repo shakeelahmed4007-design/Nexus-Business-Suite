@@ -50,6 +50,7 @@ export const navItems: NavItem[] = [
   { label: 'Invoices', path: '/invoices', icon: FileText, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Payments', path: '/payments', icon: CreditCard, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
   { label: 'Purchases', path: '/purchases', icon: BookOpen, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
+  { label: 'Credit Tracking', path: '/credit-management', icon: CreditCard, group: 'Sales', allowedRoles: ['Admin', 'Call Agent'] },
 
   { label: 'Stock', path: '/stock', icon: Boxes, group: 'Inventory', allowedRoles: ['Admin', 'Inventory Manager'] },
   { label: 'Warehouse', path: '/warehouse', icon: Warehouse, group: 'Inventory', allowedRoles: ['Admin', 'Inventory Manager'] },

@@ -157,10 +157,47 @@ function OrderDrawer({
     const ok = await updateOrderStatusApi(rawId, nextStatus, ownerAdminEmail);
     setUpdating(false);
 
+    // Auto-create Follow-up Task for Delivered or Processing orders
+    try {
+      const orderShortId = (order.id || '').replace(/^ORD-/i, '').slice(0, 6).toUpperCase();
+      const isDelivered = nextStatus === 'Delivered';
+      const taskTitle = isDelivered
+        ? `Post-Delivery Satisfaction & Review: #${order.id}`
+        : `Order Dispatch & Logistics Follow-up: #${order.id}`;
+      const taskDesc = isDelivered
+        ? `Order #${order.id} for ${order.customer} has been delivered (Total: PKR ${order.total.toLocaleString()}). Follow up to verify items and ask for feedback.`
+        : `Order #${order.id} moved to ${nextStatus}. Check shipment tracking and confirm courier dispatch.`;
+
+      const dueDate = new Date(Date.now() + (isDelivered ? 2 : 1) * 86400000).toISOString().split('T')[0];
+
+      const autoTask = {
+        id: `task-ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        title: taskTitle,
+        description: taskDesc,
+        type: 'satisfaction_followup',
+        status: 'To Do',
+        taskStatus: 'To Do',
+        priority: order.total > 50000 ? 'High' : 'Medium',
+        due_date: dueDate,
+        dueDate: dueDate,
+        assignedAgentName: 'Admin / Order Dispatcher',
+        linkedEntityName: order.customer,
+        notes: `Auto-generated from Order ${order.id} (${nextStatus})`,
+        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      const tasksKey = `nexus_crm_tasks_${ownerAdminEmail}`;
+      const existingTasks = JSON.parse(localStorage.getItem(tasksKey) || '[]');
+      existingTasks.unshift(autoTask);
+      localStorage.setItem(tasksKey, JSON.stringify(existingTasks));
+      window.dispatchEvent(new Event('storage'));
+    } catch { }
+
     if (ok) {
-      alert(`Order status updated to ${nextStatus} in Supabase!`);
+      alert(`Order status updated to ${nextStatus} in Supabase! Follow-up task added to Tasks & Follow-ups.`);
     } else {
-      alert(`Order status set to ${nextStatus} locally.`);
+      alert(`Order status set to ${nextStatus} locally. Follow-up task created.`);
     }
     onStatusUpdated();
   };

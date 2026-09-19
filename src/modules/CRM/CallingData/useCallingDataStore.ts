@@ -1174,8 +1174,49 @@ export function useCallingDataStore() {
           if (error) console.error('Supabase update leads error:', error.message, error);
         });
       } catch { }
+
+      // Auto-create Follow-up Task in Tasks & Follow-ups
+      if (newStatus === 'Sales' || newStatus === 'Renewal') {
+        try {
+          const leadObj = leads.find(l => l.id === leadId);
+          const customerName = leadObj?.name || 'Customer';
+          const taskTitle = newStatus === 'Sales'
+            ? `Sales Won - Finalize Agreement & Onboarding: ${customerName}`
+            : `Subscription Renewal Follow-up: ${customerName}`;
+          const taskDesc = newStatus === 'Sales'
+            ? `Sales Deal converted successfully! Follow up with ${customerName} to finalize invoices, initiate product onboarding, and schedule delivery confirmation.`
+            : `Annual subscription renewal due soon for ${customerName}. Connect to review service utilization and process contract renewal.`;
+
+          const dueDate = new Date(Date.now() + (newStatus === 'Sales' ? 2 : 14) * 86400000).toISOString().split('T')[0];
+
+          const autoTask = {
+            id: `task-auto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: taskTitle,
+            description: taskDesc,
+            type: newStatus === 'Sales' ? 'satisfaction_followup' : 'renewal',
+            status: 'To Do',
+            taskStatus: 'To Do',
+            priority: 'High',
+            due_date: dueDate,
+            dueDate: dueDate,
+            assignedAgentName: leadObj?.agentName || currentAgent?.name || 'Assigned Agent',
+            linkedEntityName: customerName,
+            customer_phone: targetPhone,
+            notes: leadObj?.notes || 'Automated task generated upon deal conversion',
+            created_at: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          };
+
+          const ownerEmail = getOwnerAdminEmail(currentUserEmail, userRole);
+          const tasksKey = `nexus_crm_tasks_${ownerEmail}`;
+          const existingTasks = JSON.parse(localStorage.getItem(tasksKey) || '[]');
+          existingTasks.unshift(autoTask);
+          localStorage.setItem(tasksKey, JSON.stringify(existingTasks));
+          window.dispatchEvent(new Event('storage'));
+        } catch { }
+      }
     }
-  }, []);
+  }, [leads, currentAgent?.name, currentUserEmail, userRole]);
 
   // Workflow Action 5: Assign External Lead (Website/Facebook) to Agent
   const assignImportedLead = useCallback((importedLeadId: string, targetAgentId: string) => {
